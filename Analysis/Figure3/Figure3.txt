@@ -1,0 +1,446 @@
+conda activate Map
+cd /data1/gaoqian/Submission/MPRA_PRS/Figure3
+
+R
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(reshape2)
+library(scales)
+library(ggrepel)
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# ========================================== Figure 3C
+
+main_cell_names=fread('./scQTL_frVars.csv')
+
+# UP,提取细胞类型
+label_map <- c(
+  epi = "Epithelium",
+  Bcell = "B cells",
+  endo = "Endothelial cell",
+  Tcell = "T cells",
+  fibro = "Fibroblasts",
+  myeloid = "Myelocyte",
+  mast = "Mast"
+)
+# 整理格式
+main_cell_names <- subset(cell_data_frame,cell_type %in% c("epi", "Bcell", "endo", "Tcell", "fibro", "myeloid", "mast"))
+main_cell_names$cell_type <- label_map[as.character(main_cell_names$cell_type)]
+desired_order <- c("Epithelium", "B cells", "Endothelial cell", "T cells", "Fibroblasts", "Myelocyte","Mast")
+main_cell_names$cell_type <- factor(main_cell_names$cell_type, levels = desired_order)
+
+dat=main_cell_names
+long_df <- melt(
+  dat,
+  id.vars = "cell_type",
+  measure.vars = c("N_eqtl", "N_IDE"),
+  variable.name = "metric",
+  value.name = "count"
+)
+# 绘图
+p1=ggplot(long_df, aes(x = cell_type, y = count, fill = metric)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "", y = "Number of frVars", fill = "Metric") +
+  scale_fill_manual(values = c("N_eqtl" = "#86A8D0", "N_IDE" = "#A16DA0"),
+					labels = c("N_eqtl" = "eQTL", "N_IDE" = "IDE"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  
+# DOWN,提取细胞类型
+label_map <- c(
+  chief = "Chief",
+  pit = "Pit",
+  neck = "Neck",
+  endocrine = "Endocrine",
+  parietal = "Parietal",
+  enterocytes = "Enterocytes"
+)
+# 整理格式
+main_cell_names <- subset(cell_data_frame,cell_type %in% c('chief','pit','neck','endocrine','parietal','enterocytes'))
+main_cell_names$cell_type <- label_map[as.character(main_cell_names$cell_type)]
+desired_order <- c('Neck','Pit','Chief','Parietal','Endocrine','Enterocytes')
+main_cell_names$cell_type <- factor(main_cell_names$cell_type, levels = desired_order)
+
+dat=main_cell_names
+long_df <- melt(
+  dat,
+  id.vars = "cell_type",
+  measure.vars = c("N_eqtl", "N_IDE"),
+  variable.name = "metric",
+  value.name = "count"
+)
+# 绘图
+p2=ggplot(long_df, aes(x = cell_type, y = count, fill = metric)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "", y = "Number of frVars", fill = "Metric") +
+  scale_fill_manual(values = c("N_eqtl" = "#86A8D0", "N_IDE" = "#A16DA0"),
+					labels = c("N_eqtl" = "eQTL", "N_IDE" = "IDE"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+  
+# 拼接导出
+library(ggpubr)
+combined_plot <- ggarrange(p1, p2, nrow = 2) # 上下拼接
+ggsave("./Figure_3C.pdf", combined_plot, width = 4, height = 6)
+
+# ========================================== Figure 3D
+
+# 读取数据
+coloc = fread('./IDE_gene.csv')
+dat = coloc[,c('chr','Gene','PPH4','HitSNP')]
+dat$chr <- as.integer(dat$chr)
+dat$chr <- factor(dat$chr, levels = sort(unique(dat$chr)))
+
+Snp_pos = dat[which(dat$PPH4 >= 0.5),]
+
+###画图
+pdf('./Figure_3D.pdf',width = 6, height = 3)
+ggplot() + 
+  geom_point(aes(x=chr, y=PPH4,size = HitSNP),color='#de95ba', alpha=1,data=dat) +
+  geom_point(aes(x=chr, y=PPH4,size = HitSNP),color='#7f4a88', alpha=1,data=Snp_pos) +
+  geom_hline(yintercept = 0.5, linetype=2)+
+  geom_text_repel(data = Snp_pos, aes(x= chr, y=PPH4,label = Gene),size=3)+
+  theme_bw() + 
+  theme(panel.grid.major = element_blank(),panel.grid.minor = element_blank())+
+  labs(x="Chromosome")
+dev.off()
+
+# ========================================== Figure 3E
+
+# 读取数据
+gwas=fread('./TIFA_region_GWAS.txt')
+eqtl=fread('./TIFA_region_QTL.txt')
+
+gwas_sig <- gwas[gwas$logp > -log10(5e-4),]
+gwas_nosig <- gwas[gwas$logp < -log10(5e-4),]
+eqtl_sig <- eqtl[eqtl$FDR < 0.05 ,]
+eqtl_nosig <- eqtl[eqtl$FDR > 0.05,]
+
+#GWAS轨道图
+highlight_ids <- c("rs10000700")
+highlight_snps <- gwas[gwas$RSID %in% highlight_ids, ]
+highlight_snps$label_y <- highlight_snps$logp + 0.2
+highlight_snps$label_x <- highlight_snps$bp / 1e6 + 0.002
+
+p1 = ggplot() +
+  geom_point(data=gwas_nosig, aes(x = bp / 1e6, y = logp), size = 5,color = 'grey') +
+  geom_point(data=gwas_sig, aes(x = bp / 1e6, y = logp), size = 5,color = '#f08a5d') +
+  scale_x_continuous(limits = c(113.04, 113.35),  
+  labels = function(x) paste0(x, " Mb") # x轴范围（单位：Mb）
+  )+
+  labs(x = "", y = "-log10(GWAS P)") +
+  geom_vline(data = highlight_snps, aes(xintercept = bp / 1e6), linetype = "dashed", color = "black",linewidth=0.5) +
+  geom_segment(data = highlight_snps,
+               aes(x = bp / 1e6, xend = label_x,y = logp, yend = label_y),
+               color = "black", linewidth = 0.3) +
+  geom_text(data = highlight_snps,
+            aes(x = label_x, y = label_y, label = RSID),
+            size = 6, color = "black", hjust = 0) +  # hjust = 0 左对齐
+  theme_minimal()+
+  theme(
+    axis.line.y = element_line(linewidth = 0.5, color = "black"),    
+	axis.line.x = element_blank(),    
+    axis.title = element_text(size = 28),
+	axis.text.x = element_blank(),
+	axis.text.y = element_text(size=20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.position = "right",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1),
+	axis.ticks.x = element_blank(),
+    axis.ticks.length = unit(0.2, "cm")
+  )
+
+#eQTL轨道图
+highlight_ids <- c("rs10000700")
+highlight_snps <- eqtl[eqtl$RSID %in% highlight_ids, ]
+highlight_snps$label_y <- highlight_snps$logp + 0.2
+highlight_snps$label_x <- highlight_snps$bp / 1e6 + 0.002
+
+p2 = ggplot() +
+  geom_point(data=eqtl_nosig, aes(x = bp / 1e6, y = logp), size = 5,color = 'grey') +
+  geom_point(data=eqtl_sig, aes(x = bp / 1e6, y = logp), size = 5,color = '#9e579d') +
+  scale_y_continuous(breaks = c(0, 2, 4, 6))+
+  scale_x_continuous(limits = c(113.04, 113.35),  
+  labels = function(x) paste0(x, " Mb") 
+  )+
+  labs(x = "", y = "-log10(eQTL P)") +
+  geom_vline(data = highlight_snps, aes(xintercept = bp / 1e6), linetype = "dashed", color = "black",linewidth=0.5) +
+  geom_segment(data = highlight_snps,
+               aes(x = bp / 1e6, xend = label_x,y = logp, yend = label_y),
+               color = "black", linewidth = 0.3) +
+  geom_text(data = highlight_snps,
+            aes(x = label_x, y = label_y, label = RSID),
+            size = 6, color = "black", hjust = 0) +  
+  theme_minimal()+
+  theme(
+    axis.line.y = element_line(linewidth = 0.5, color = "black"),   
+	axis.line.x = element_blank(),  
+    axis.title = element_text(size = 28),
+	axis.text.x = element_blank(),
+	axis.text.y = element_text(size=20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.position = "right",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1),
+	axis.ticks.x = element_blank(),
+    axis.ticks.length = unit(0.2, "cm")
+  )
+
+#MPRA轨道图
+ges=fread('MPRA_GES_AllVariant.csv')
+mkn=fread('MPRA_MKN_AllVariant.csv')
+
+plot_list <- list()
+
+for(i in c('ges','mkn')){
+data=get(i)
+bp=gwas[,c('bp','RSID')]
+data=merge(bp,data,by.x='RSID',by.y='SNP') #添加bp
+data$logp=-log(data$Pvalue,10)
+
+highlight_ids <- c("rs10000700")
+highlight_snps <- data[data$RSID %in% highlight_ids, ]
+highlight_snps$label_y <- highlight_snps$logp + 0.2
+highlight_snps$label_x <- highlight_snps$bp / 1e6 + 0.002
+
+data_sig <- data[data$FDR < 0.01 ,]
+data_nosig <- subset(data,!(RSID %in% data_sig$RSID))
+
+p = ggplot() +
+  geom_point(data=data_nosig, aes(x = bp / 1e6, y = logp, size=abs(log2FoldChange)),color = 'grey') +
+  geom_point(data=data_sig, aes(x = bp / 1e6, y = logp, size=abs(log2FoldChange)),color = '#b74242') +
+scale_size_continuous(
+  limits = c(0, 1.4),
+  breaks = c(0.2, 0.6, 1.0, 1.4),
+  range = c(2, 8),
+  name = 'MPRA Allelic activity' 
+) +
+  scale_x_continuous(limits = c(113.04, 113.35),  
+  labels = function(x) paste0(x, " Mb") # x轴范围（单位：Mb）
+  )+
+  scale_y_continuous(breaks = c(0, 3, 6, 9))+
+  
+  labs(x = "chr 4", y = paste0("-log10(MPRA_",i," P)")) +
+  geom_vline(data = highlight_snps, aes(xintercept = bp / 1e6), linetype = "dashed", color = "black",linewidth=0.5) +
+  geom_segment(data = highlight_snps,
+               aes(x = bp / 1e6, xend = label_x,y = logp, yend = label_y),
+               color = "black", linewidth = 0.3) +
+  geom_text(data = highlight_snps,
+            aes(x = label_x, y = label_y, label = RSID),
+            size = 6, color = "black", hjust = 0) +  
+  theme_minimal()+
+  theme(
+    axis.line.y = element_line(linewidth = 0.5, color = "black"),    
+	axis.line.x = element_blank(),   
+    axis.title.y = element_text(size = 28),
+    axis.title.x = element_blank(),
+	axis.text.x = element_blank(),
+	axis.text.y = element_text(size=20),
+	legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1),
+	axis.ticks.x = element_blank(),
+    axis.ticks.length = unit(0.2, "cm")
+  )
+   plot_list[[i]] <- p
+   }
+
+#ATAC轨道图
+#bulk
+atac=fread('TIFA_region_ATAC.txt')
+atac=subset(atac,group='atac')
+
+  p3 = ggplot(atac) +
+  geom_rect(aes(xmin = start, xmax = end, ymin = ymin, ymax = ymax), fill = "#1f5f8b") +
+  scale_x_continuous(limits = c(113.04, 113.35),  
+  labels = function(x) paste0(x, " Mb") # x轴范围（单位：Mb）
+  )+
+  labs(x = "", y = "") +
+  theme_minimal()+
+  theme(
+    axis.line.y = element_line(linewidth = 0.5, color = "black"),    # 显示坐标轴线
+	#axis.line.x = element_blank(),    # 显示坐标轴线
+     axis.title = element_text(size = 28),
+	 #axis.text.x = element_blank(),
+	 axis.text.y = element_text(size=6),
+    #plot.title = element_text(size = 28, hjust = 0.5),
+    # legend.title = element_text(size = 20),
+    # legend.text = element_text(size = 16),
+     legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1),
+	axis.ticks.x = element_blank(),
+    axis.ticks.length = unit(0.2, "cm")
+  )
+
+#上皮
+Epi=subset(atac,group='epi')
+
+  p4 = ggplot(Epi) +
+  geom_rect(aes(xmin = start, xmax = end, ymin = ymin, ymax = ymax), fill = "#1f5f8b") +
+  scale_x_continuous(limits = c(113.04, 113.35),  
+  labels = function(x) paste0(x, " Mb") # x轴范围（单位：Mb）
+  )+
+  labs(x = "", y = "") +
+  theme_minimal()+
+  theme(
+    axis.line.y = element_line(linewidth = 0.5, color = "black"),    # 显示坐标轴线
+	#axis.line.x = element_blank(),    # 显示坐标轴线
+     axis.title = element_text(size = 28),
+	 #axis.text.x = element_blank(),
+	 axis.text.y = element_text(size=6),
+    #plot.title = element_text(size = 28, hjust = 0.5),
+    # legend.title = element_text(size = 20),
+    # legend.text = element_text(size = 16),
+     legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1),
+	axis.ticks.x = element_blank(),
+    axis.ticks.length = unit(0.2, "cm")
+  )
+  
+path=paste0('./Figure_3E.pdf')
+pdf(path,width=20,height=14)
+grid.arrange(p1, p2, plot_list[['ges']], plot_list[['mkn']],p3,p4,ncol = 1) 
+dev.off()
+
+# ========================================== Figure 3F
+
+#rs10000700 MPRA skew
+data=fread('MPRA skew_3F.csv')
+ges=subset(data,group=='ges')
+mkn=subset(data,group=='mkn')
+
+plots = list()  
+i = 1  
+
+for (a in c('ges','mkn')) {
+  dat = get(a)
+
+  p = ggplot(dat, aes(x = Allele, y = MPRAactivity, color = Allele)) +
+    geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.7)) +
+    geom_point(position = position_jitterdodge(jitter.width = 0.8), size = 3) +
+	scale_y_continuous(limits = c(0, 1.8), breaks = seq(0, 1.8, by = 0.3)) +
+    geom_line(aes(group = Sample), color = "gray", lwd = 0.3, alpha = 0.8) +
+    scale_color_manual(values = c("G" = "#2f9296", "A" = "#46b7b9")) +
+    labs(x = "", y = "log2(RNA/DNA)") +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      legend.title = element_blank(),
+      panel.border = element_rect(fill = NA, color = "black", linewidth = 1),
+      axis.text = element_text(size = 12, color = 'black'),
+      axis.title = element_text(size = 12, color = 'black'),
+      axis.line = element_line(color = "black"),
+      legend.position = 'none'
+    )
+
+  plots[[i]] <- p 
+  i <- i + 1
+}
+
+library(patchwork)
+plot=plots[[1]] + plots[[2]]
+ggsave('./Figure_3F.pdf',plot,width = 5, height = 6)
+
+# ========================================== Figure 3G
+
+data=fread('TIFA_QTL_plot.csv')
+colnames(data)[4]='rs10000700'
+colnames(data)[3]='TIFA'
+
+p = ggplot(data, aes(x = rs10000700, y = TIFA, color = rs10000700)) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.7)) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.6), size = 4) +   
+  scale_color_manual(values = c("AA" = "#87dfd6", "GG" = "#2f9296", "GA" = "#46b7b9")) +
+  labs(x = "", y = "TMM") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+  legend.title = element_blank(),
+  panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+  axis.text = element_text(size = 12, color = 'black', face = 'plain'),
+  axis.title = element_text(size = 12, color = 'black', face = 'plain'),
+  axis.line = element_line(color = "black"),
+  legend.position = 'none') +
+  theme(legend.title = element_blank()) +
+  scale_x_discrete(limits = unique(data$Group))
+ggsave('./Figure_3G.pdf',p)  
+
+# ========================================== Figure 3H
+
+tmm=fread('TIFA_exp.txt')
+
+library(ggpubr)
+pdf('./Figure_3H.pdf',height = 6,width=4)
+ggplot(tmm, aes(x = Group, y = V1, color = Group)) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.7)) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.8), size = 3) + 
+  labs(x = "", y = "TMM") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+  legend.title = element_blank(),
+  panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+  axis.text = element_text(size = 10, color = 'black', face = 'plain'),
+  axis.title = element_text(size = 10, color = 'black', face = 'plain'),
+  axis.line = element_line(color = "black"),
+  legend.position = 'none') +
+  theme(legend.title = element_blank())
+dev.off()
+
+# 已发表数据差异检验结果
+cancer_reseach_deg=fread('TMM_DEG_res')
+cancer_reseach_deg=subset(cancer_reseach_deg,gene_name=='TIFA')
+   # gene_name log2FoldChange       pvalue         padj class1 class2
+      # <char>          <num>        <num>        <num> <char> <char>
+# 1:      TIFA     -0.9464599 1.740158e-13 4.526866e-12     GC Normal
+# 2:      TIFA     -0.1254750 1.795718e-01 2.576039e-01     GC     IM
+# 3:      TIFA     -0.8209849 5.606763e-12 2.131437e-10     IM Normal
+
+# ========================================== Figure 3M
+
+dat=fread('HP_pathway.csv')
+
+pdf('Figure_3M.pdf')
+ggplot(dat, aes(x = correlation_pos, y = correlation_neg, color = color_group)) + 
+  geom_point(size = 2) +
+  geom_text_repel(
+  data = subset(dat, pathway_id %in% c(
+  'GOBP_REGULATION_OF_DOUBLE_STRAND_BREAK_REPAIR',
+  'GOBP_EPITHELIAL_CELL_APOPTOTIC_PROCESS',
+  'KEGG_MEDICUS_REFERENCE_NOD_NFKB_SIGNALING_PATHWAY')),
+  aes(x = correlation_pos, y = correlation_neg, label = pathway_id),
+  size = 2.8,
+  point.padding = 0.3,       # 控制与点的距离
+  box.padding = 0.4,         # 控制标签之间的距离
+  max.overlaps = 50,
+  segment.color = "black",
+  color = "black"
+)+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  geom_vline(xintercept = c(-0.5, 0.5), linetype = "dashed", color = "gray50") +
+  geom_hline(yintercept = c(-0.5, 0.5), linetype = "dashed", color = "gray50") +
+  scale_x_continuous(breaks = seq(-1, 1, by = 0.2)) +
+  scale_y_continuous(breaks = seq(-1, 1, by = 0.2)) +
+  scale_color_identity() +
+  theme_minimal() +
+  labs(
+    title = "POS vs NEG Correlation Comparison",
+    x = "Correlation in Hp+ group",
+    y = "Correlation in Hp- group"
+  )
+dev.off()
+
+
+
+

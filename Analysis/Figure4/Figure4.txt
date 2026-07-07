@@ -1,0 +1,483 @@
+conda activate Map
+cd /data1/gaoqian/Submission/MPRA_PRS/Figure4
+
+R
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(reshape2)
+library(scales)
+library(ggrepel)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(reshape)
+
+# ========================================== Figure 4A
+
+dd=fread('./functional_score_FDR.csv')
+pdf("./Figure_4A.pdf")
+p = ggplot(dd, aes(x= min_skew_FDR,y=value,col=variable))+
+  geom_smooth()+
+  scale_x_continuous(expand = c(0,0.001),limits = c(0,0.105),breaks = seq(0, 0.1, by = 0.02))+
+  geom_vline(xintercept = 0.01,linetype=2)+
+  geom_vline(xintercept = 0.05,linetype=2)+
+  geom_vline(xintercept = 0.1,linetype=2)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+        legend.title = element_blank(),
+        panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+        axis.text = element_text(size = 12, color = 'black', face = 'plain'),
+        axis.title = element_text(size = 12, color = 'black', face = 'plain'),
+        legend.position = c(0.20, 0.80))+
+  labs(y="Percentage of Frvars (%)", x="FDR of MPRA allelic activity")
+
+p
+dev.off()
+
+# ========================================== Figure 4B
+
+# 5个功能得分upset图
+mpra=fread('./Func_score.csv')
+mpra$FunctionalScore = mpra$score_1
+mpra_frvar=subset(mpra,MPRA_group=='frVars')
+binary_data <- mpra_frvar[, .(njmu_loop, eqtl, ATAC, TFBS, HMM)]
+
+library(UpSetR)
+pdf('./Figure_4B_bottom.pdf',width=12,height=8)
+upset(binary_data, 
+      nsets = 5,  # 显示所有5个特征
+      mb.ratio = c(0.6, 0.4),  # 调整矩阵和条形图比例
+      order.by = "freq",  # 按频率排序
+      decreasing = TRUE,
+      text.scale = 2,  # 调整文本大小
+      point.size = 4,
+      line.size = 1,
+	  main.bar.color = "#dd7b5e",
+      sets.bar.color = "#734f84",
+	  matrix.color = "#dd7b5e"
+	  )
+dev.off()
+
+# 饼图统计functional——score
+mpra_frvar=subset(mpra,MPRA_group=='frVars')
+df_pie <- as.data.frame(table(mpra_frvar$score_1))
+colnames(df_pie) <- c("score", "count")
+df_pie$percent <- round(df_pie$count / sum(df_pie$count) * 100, 1)
+df_pie$label <- paste0(df_pie$score, "\n", df_pie$percent, "%")
+
+pdf('Figure_4B_top.pdf')
+ggplot(df_pie, aes(x = "", y = count, fill = as.factor(score))) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y") +
+  theme_void() +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 4) +
+  labs(title = "Score Distribution", fill = "Score") +
+  scale_fill_brewer(palette = "Set3")  # 可换成 "Pastel1", "Paired", "Dark2" 等
+dev.off()
+
+# ========================================== Figure 4C-4E
+
+result=fread('functional_score_proportion.csv')
+result$FunctionalScore=as.integer(result$FunctionalScore)
+
+# 趋势检验
+lm_frVars <- lm(frVars_prop_in_total ~ FunctionalScore, data = result)
+lm_frPlusNonfr <- lm(frPlusNonfr_prop_in_total ~ FunctionalScore, data = result)
+lm_fr_in_frPlusNonfr <- lm(fr_in_frPlusNonfr ~ FunctionalScore, data = result)
+
+summary(lm_frVars)
+	# Coefficients:
+					# Estimate Std. Error t value Pr(>|t|)  
+	# (Intercept)     0.015067   0.009402   1.602   0.1843  
+	# FunctionalScore 0.011700   0.003106   3.767   0.0196 *
+summary(lm_frPlusNonfr)
+	# Coefficients:
+					# Estimate Std. Error t value Pr(>|t|)    
+	# (Intercept)     0.450705   0.019623  22.969 2.13e-05 ***
+	# FunctionalScore 0.038631   0.006481   5.961  0.00398 **
+summary(lm_fr_in_frPlusNonfr)
+	# Coefficients:
+					# Estimate Std. Error t value Pr(>|t|)  
+	# (Intercept)     0.039181   0.012214   3.208   0.0327 *
+	# FunctionalScore 0.015514   0.004034   3.846   0.0184 *
+  
+#画图
+
+library(patchwork)
+df=result
+
+# Figure 4C
+p1 <- ggplot(df, aes(x = factor(FunctionalScore), y = round(frVars_prop_in_total*100,2))) +
+  geom_bar(stat = "identity", fill = "#66c2a5") +
+  theme_minimal() +
+  xlab("Functional Score") + ylab("frVars in total (%)") +
+  ggtitle("")
+
+# Figure 4D
+p2 <- ggplot(df, aes(x = factor(FunctionalScore), y = round(frPlusNonfr_prop_in_total*100,2))) +
+  geom_bar(stat = "identity", fill = "#fc8d62") +
+  theme_minimal() +
+  xlab("Functional Score") + ylab("Active variants in total (%)") +
+  ggtitle("")
+
+# Figure 4E
+p3 <- ggplot(df, aes(x = factor(FunctionalScore), y = round(fr_in_frPlusNonfr*100,2))) +
+  geom_bar(stat = "identity", fill = "#8da0cb") +
+  theme_minimal() +
+  xlab("Functional Score") + ylab("frVars in active variants (%)") +
+  ggtitle("")
+
+pdf('Figure_4C-4E.pdf',width=8,height=4)
+(p2 | p3 | p1) + plot_layout(guides = "collect")
+dev.off()
+
+# ========================================== Figure 4F
+
+mpra=fread('./Func_score.csv')
+mpra$FunctionalScore = mpra$score_1
+mpra=data.frame(mpra)
+mpra$MPRA_group=as.factor(mpra$MPRA_group)
+
+# 两两比较分组
+group_levels <- levels(mpra$MPRA_group)
+comparisons_list <- combn(group_levels, 2, simplify = FALSE)
+
+group1 <- mpra[mpra$MPRA_group == "frVars",]$score_1
+group3 <- mpra[mpra$MPRA_group == "non_active_variants",]$score_1
+group2 <- mpra[mpra$MPRA_group == "nonfrVars",]$score_1
+
+library(ggpubr)
+pdf('Figure_4F.pdf',width=4,height=6)
+ggplot(mpra, aes(x = factor(MPRA_group,levels=c('non_active_variants','nonfrVars','frVars')), 
+  y = FunctionalScore, fill = MPRA_group)) +
+  stat_summary(geom = "bar", fun = mean, width = 0.6, alpha = 1, color = "black") +
+  stat_summary(geom = "errorbar", fun.data = mean_se, width = 0.1, color = "black") +
+  stat_summary(geom = "text", fun = mean, aes(label = round(..y.., 2)), vjust = -2, color = "black") +
+  labs(
+    title = "Mean Functional Score by MPRA Group",
+    y = "Mean Functional Score",
+    x = "MPRA Group"
+  ) +
+  scale_fill_brewer(palette = "Pastel1") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+dev.off()
+
+# 进行两两 Wilcoxon 检验
+test_1_2 <- wilcox.test(group1, group2) # W = 927362, p-value = 0.004766
+test_1_3 <- wilcox.test(group1, group3) # W = 1024352, p-value = 3.018e-05
+test_2_3 <- wilcox.test(group2, group3) # W = 14494500, p-value = 0.0001345
+
+# ========================================== Figure 4G
+
+# GWAS PLOT
+gwas=fread('/data1/gaoqian/Submission/MPRA_PRS/Figure4/GWAS_6p21')
+gwas_sub=subset(gwas,group=='gwas_sub')
+gwas_region=subset(gwas,group!='gwas_sub')
+
+  p_gwas <- ggplot() +
+    geom_point(data = gwas_region, aes(x = bp / 1e6, y = logp,color=group), size = 5) +
+	geom_point(data = gwas_sub, aes(x = bp / 1e6, y = logp,color=group), size = 5) +
+    labs(x = regions, y = "-log10(GWAS P)") +
+    theme_minimal() +
+	scale_x_continuous(
+      limits = c(40.8, 41.3),
+      labels = function(x) paste0(x, " Mb")
+    ) +
+	scale_color_manual(values = c("gwas_sub" = '#f67828', 'nosig'='grey')) +
+    theme(
+      axis.line.y = element_line(linewidth = 0.5, color = "black"),
+      axis.line.x = element_blank(),
+      axis.title = element_text(size = 28),
+      axis.text.x = element_text(size = 20),
+      axis.text.y = element_text(size = 20),
+      legend.title = element_text(size = 20),
+      legend.text = element_text(size = 16),
+      legend.position = "right",
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.ticks.y = element_line(linewidth = 1),
+      axis.ticks.x = element_line(linewidth = 1),
+      axis.ticks.length = unit(0.2, "cm")
+    )
+
+# MPRA PLOT
+bp_data <- gwas_sub[, c('bp', 'RSID')]
+
+data=fread('MPRA_6p21')
+data <- merge(bp_data, data, by.x = 'RSID', by.y = 'SNP') 
+data$logp <- -log10(data$Pvalue)
+data_sig <- subset(data, FDR.y < FDR_THRESHOLD)
+data_nosig <- subset(data, !(RSID %in% data_sig$RSID))
+    
+    highlight_snps_mpra <- subset(data_sig,RSID %in% highlight)
+    highlight_snps_mpra$label_y <- highlight_snps_mpra$logp + 0.2
+    highlight_snps_mpra$label_x <- highlight_snps_mpra$bp / 1e6 + 0.002
+    
+p_mpra <- ggplot() +
+      geom_point(data = data_nosig, 
+                 aes(x = bp / 1e6, y = logp, size = abs(log2FoldChange)), 
+                 color = '#BDBDBD') +
+      geom_point(data = data_sig, 
+                 aes(x = bp / 1e6, y = logp, size = abs(log2FoldChange)), 
+                 color = '#B64141') +
+		scale_x_continuous(
+		  limits = c(40.8, 41.3),
+		  labels = function(x) paste0(x, " Mb")
+		) +
+      labs(x = paste0(regions), 
+           y = paste0("-log10(MPRA ", toupper(cell_type), " P)"),
+           size = "|log2FC|") +
+      geom_vline(data = highlight_snps_mpra, 
+                 aes(xintercept = bp / 1e6), 
+                 linetype = "dashed", color = "black", linewidth = 0.5) +
+      geom_segment(data = highlight_snps_mpra,
+                   aes(x = bp / 1e6, xend = label_x, y = logp, yend = label_y),
+                   color = "black", linewidth = 0.3) +
+      geom_text(data = highlight_snps_mpra,
+                aes(x = label_x, y = label_y, label = RSID),
+                size = 6, color = "black", hjust = 0) +
+      theme_minimal() +
+	  scale_size_continuous(
+	  limits = c(-0.01,1.0),
+	  breaks = c(0.2, 0.6, 1.0),
+	  range = c(1, 10),
+	  name = 'MPRA Allelic activity' 
+	  ) +
+      theme(
+        axis.line.y = element_line(linewidth = 0.5, color = "black"),
+        axis.line.x = if (cell_type == 'mkn') element_line(linewidth = 0.5, color = "black") else element_blank(),
+        axis.title = element_text(size = 28),
+        axis.text.x = if (cell_type == 'mkn') element_text(size = 20) else element_blank(),
+        axis.text.y = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 16),
+        legend.position = if (cell_type == 'mkn') "none" else "bottom",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks.y = element_line(linewidth = 1),
+        axis.ticks.x = if (cell_type == 'mkn') element_line(linewidth = 1) else element_blank(),
+        axis.ticks.length = unit(0.2, "cm")
+		)
+
+#functional_score plot
+functional_score=fread('score_6p21')
+  
+  score_colors <- c(
+  HMM = "#D04B54",
+  ATAC = "#419193",
+  TFBS = "#734F84",
+  eqtl = "#5072A8",
+  njmu_loop = "#DE7D62"
+)
+
+p3_list <- list()
+for (i in seq_along(score_colors)) {
+  score <- names(score_colors)[i]
+  plot_data <- subset(functional_score, functional_score[[score]] == 1)
+
+  show_x <- i == length(score_colors)
+
+  p3 <- ggplot(plot_data) +
+    geom_rect(aes(xmin = start, xmax = end, ymin = ymin, ymax = ymax),
+              fill = score_colors[[score]]) +
+    scale_x_continuous(
+	  limits = c(40.8, 41.3),
+      labels = function(x) paste0(x, " Mb")
+    ) +
+    labs(x = if (show_x) "Genomic Position" else "", y = "") +
+    ggtitle(score) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      axis.line.y = element_line(linewidth = 0.5, color = "black"),
+      axis.title = element_text(size = 12),
+      axis.text.y = element_text(size = 6),
+      axis.text.x = if (show_x) element_text(size = 8) else element_blank(),
+      axis.ticks.x = if (show_x) element_line() else element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      legend.position = "none"
+    )
+  p3_list[[score]] <- p3
+}
+
+# 组合导出
+library(patchwork)
+library(gridExtra)
+
+output_file <- 'Figure_4G.pdf'
+pdf(output_file, width = 20, height = 15)
+
+p3_combined <- wrap_plots(p3_list[c('HMM', 'ATAC', 'TFBS', 'eqtl', 'njmu_loop')], ncol = 1)
+full_plot <- p_gwas / p_mpra / p3_combined + plot_layout(ncol = 1, heights = c(1, 1, 1))
+
+print(full_plot)
+dev.off()
+
+# ========================================== Figure 4H
+
+# GWAS PLOT
+gwas=fread('/data1/gaoqian/Submission/MPRA_PRS/Figure4/GWAS_8q24')
+gwas_sub=subset(gwas,group!='gwas_sub')
+gwas_region=subset(gwas,group=='nosig')
+
+	p_gwas <- ggplot() +
+	  geom_point(data = gwas_region, aes(x = bp / 1e6, y = logp, color = group), size = 5) +
+	  geom_point(data = gwas_sub, aes(x = bp / 1e6, y = logp, color = group), size = 5) +
+	  scale_color_manual(values = c("block1" = '#f67828', "block2" = '#a25016',"block3" = '#562e19', "block4" = '#1f4e5f',"block5" = '#346357',"block6" = '#669b7c','nosig'='grey')) +
+	  labs(x = "Genomic Position (Mb)", y = "-log10(GWAS P)") +
+		scale_x_continuous(
+		  limits = c(143.55, 144.15),
+		  breaks = seq(143.55, 144.15, by = 0.1),
+		  labels = function(x) paste0(x, " Mb")
+		) +
+	  theme_minimal() +
+	  theme(
+		axis.line.y = element_line(linewidth = 0.5, color = "black"),
+		axis.line.x = element_blank(),
+		axis.title = element_text(size = 28),
+		axis.text.x = element_text(size = 20),
+		axis.text.y = element_text(size = 20),
+		legend.title = element_text(size = 20),
+		legend.text = element_text(size = 16),
+		legend.position = "right",
+		panel.grid.major = element_blank(),
+		panel.grid.minor = element_blank(),
+		axis.ticks.y = element_line(linewidth = 1),
+		axis.ticks.x = element_line(linewidth = 1),
+		axis.ticks.length = unit(0.2, "cm")
+	  )
+
+# MPRA PLOT
+bp_data <- gwas_sub[, c('bp', 'RSID')]
+
+data=fread('MPRA_8q24')
+data <- merge(bp_data, data, by.x = 'RSID', by.y = 'SNP') 
+data$logp <- -log10(data$Pvalue)
+data_sig <- subset(data, FDR.y < FDR_THRESHOLD)
+data_nosig <- subset(data, !(RSID %in% data_sig$RSID))
+    
+    highlight_snps_mpra <- subset(data_sig,RSID %in% highlight)
+    highlight_snps_mpra$label_y <- highlight_snps_mpra$logp + 0.2
+    highlight_snps_mpra$label_x <- highlight_snps_mpra$bp / 1e6 + 0.002
+    
+p_mpra <- ggplot() +
+      geom_point(data = data_nosig, 
+                 aes(x = bp / 1e6, y = logp, size = abs(log2FoldChange)), 
+                 color = '#BDBDBD') +
+      geom_point(data = data_sig, 
+                 aes(x = bp / 1e6, y = logp, size = abs(log2FoldChange)), 
+                 color = '#B64141') +
+		scale_x_continuous(
+		  limits = c(143.55, 144.15),
+		  breaks = seq(143.55, 144.15, by = 0.1),
+		  labels = function(x) paste0(x, " Mb")
+		) +
+      labs(x = paste0(regions), 
+           y = paste0("-log10(MPRA ", toupper(cell_type), " P)"),
+           size = "|log2FC|") +
+      geom_vline(data = highlight_snps_mpra, 
+                 aes(xintercept = bp / 1e6), 
+                 linetype = "dashed", color = "black", linewidth = 0.5) +
+      geom_segment(data = highlight_snps_mpra,
+                   aes(x = bp / 1e6, xend = label_x, y = logp, yend = label_y),
+                   color = "black", linewidth = 0.3) +
+      geom_text(data = highlight_snps_mpra,
+                aes(x = label_x, y = label_y, label = RSID),
+                size = 6, color = "black", hjust = 0) +
+      theme_minimal() +
+	  scale_size_continuous(
+	  limits = c(-0.01,1.0),
+	  breaks = c(0.2, 0.6, 1.0),
+	  range = c(1, 8),
+	  name = 'MPRA Allelic activity' 
+	  ) +
+      theme(
+        axis.line.y = element_line(linewidth = 0.5, color = "black"),
+        axis.line.x = if (cell_type == 'mkn') element_line(linewidth = 0.5, color = "black") else element_blank(),
+        axis.title = element_text(size = 28),
+        axis.text.x = if (cell_type == 'mkn') element_text(size = 20) else element_blank(),
+        axis.text.y = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 16),
+        legend.position = if (cell_type == 'mkn') "none" else "bottom",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks.y = element_line(linewidth = 1),
+        axis.ticks.x = if (cell_type == 'mkn') element_line(linewidth = 1) else element_blank(),
+        axis.ticks.length = unit(0.2, "cm")
+      )
+	  
+#functional_score plot
+functional_score=fread('score_8q24')
+  
+  score_colors <- c(
+  HMM = "#D04B54",
+  ATAC = "#419193",
+  TFBS = "#734F84",
+  eqtl = "#5072A8",
+  njmu_loop = "#DE7D62"
+)
+
+  p3_list <- list()
+  for (i in seq_along(score_colors)) {
+  score <- names(score_colors)[i]
+  plot_data <- subset(atac, atac[[score]] == 1)
+
+  show_x <- i == length(score_colors)
+  
+  p3 <- ggplot(plot_data) +
+    geom_rect(aes(xmin = start, xmax = end, ymin = ymin, ymax = ymax),
+              fill = score_colors[[score]]) +
+		scale_x_continuous(
+		  limits = c(143.55, 144.15),
+		  breaks = seq(143.55, 144.15, by = 0.1),
+		  labels = function(x) paste0(x, " Mb")
+		) +
+    labs(x = if (show_x) "Genomic Position" else "", y = "") +
+    ggtitle(score) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      axis.line.y = element_line(linewidth = 0.5, color = "black"),
+      axis.title = element_text(size = 12),
+      axis.text.y = element_text(size = 6),
+      axis.text.x = if (show_x) element_text(size = 8) else element_blank(),
+      axis.ticks.x = if (show_x) element_line() else element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      legend.position = "none"
+    )
+  p3_list[[score]] <- p3
+  }
+
+# 组合导出
+library(patchwork)
+library(gridExtra)
+
+output_file <- 'Figure_4H.pdf'
+pdf(output_file, width = 20, height = 15)
+
+p3_combined <- wrap_plots(p3_list[c('HMM', 'ATAC', 'TFBS', 'eqtl', 'njmu_loop')], ncol = 1)
+full_plot <- p_gwas / p_mpra / p3_combined + plot_layout(ncol = 1, heights = c(1, 1, 1))
+
+print(full_plot)
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1382 @@
+conda activate figure
+cd /data1/gaoqian/Submission/MPRA_PRS/Figure6
+
+R
+library(survival)
+library(ff)
+library(broom)   
+library(readxl)  
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(rms)
+library(adjustedCurves)
+library(riskRegression)
+library(bigsnpr)  
+library(pROC)
+library(magrittr)
+library(R.utils)
+library(gridExtra)
+library(fmsb)  
+library(popEpi)  
+library(rstpm2)  
+library(flexsurv)  
+library(foreign)
+library(ggsci)  
+library(nnet) 
+library(devtools)  
+library(qvcalc) 
+library("survminer")
+library(gmodels)
+library(purrr)
+
+# ========================================== Figure 6A
+
+# CKB
+plotdata=fread('./CKB_PRS')
+plotdata=subset(plotdata,PRS_group!='FrVars_BOTH')
+mycolor <- c('#4387B5', 'pink')
+
+plots <- plotdata %>%
+  group_split(PRS_group) %>%
+  map(function(df_group) {
+    pval <- t.test(df_group[df_group$GC_new == 0, 'PRS'],
+                   df_group[df_group$GC_new == 1, 'PRS'])$p.value
+    
+    ggplot(df_group, aes(x = PRS, fill = factor(GC_new))) +
+      geom_density(alpha = 0.6, color = 'black') +
+      scale_fill_manual(values = mycolor) +
+      theme_bw() +
+      labs(
+      x = "PRS", y = "Density",
+      title = paste0("PRS_group = ", unique(df_group$PRS_group),
+                          ", p = ", format(pval, digits = 3)))+
+      theme(
+       axis.text = element_text(size = 18),
+       legend.position = "top"  
+       )  
+  })
+
+path = paste0("Figure_6A_CKB.pdf")
+plot = do.call(grid.arrange, c(plots, nrow = 1))
+ggsave(path, plot, width = 12, height = 4, )
+
+# UKB
+plotdata=fread('./UKB_PRS')
+plotdata=subset(plotdata,PRS_group!='FrVars_BOTH')
+mycolor <- c('#4387B5', 'pink')
+
+plots <- plotdata %>%
+  group_split(PRS_group) %>%
+  map(function(df_group) {
+    pval <- t.test(df_group[df_group$GC_new == 0, 'PRS'],
+                   df_group[df_group$GC_new == 1, 'PRS'])$p.value
+    
+    ggplot(df_group, aes(x = PRS, fill = factor(GC_new))) +
+      geom_density(alpha = 0.6, color = 'black') +
+      scale_fill_manual(values = mycolor) +
+      theme_bw() +
+      labs(
+      x = "PRS", y = "Density",
+      title = paste0("PRS_group = ", unique(df_group$PRS_group),
+                          ", p = ", format(pval, digits = 3)))+
+      theme(
+       axis.text = element_text(size = 18),
+       legend.position = "top"  
+       )  
+  })
+
+path = paste0("Figure_6A_UKB.pdf")
+plot = do.call(grid.arrange, c(plots, nrow = 1))
+ggsave(path, plot, width = 12, height = 4, )
+
+# ========================================== Figure 6B CKB
+
+#-----CKB，封装函数，计算5组OR-----
+analyze_by_group <- function(data_group) {
+  qs <- quantile(data_group$scalePRS, probs = seq(0.05, 1, 0.05), na.rm = TRUE)
+  Q20 <- qs[[4]]
+  Q40 <- qs[[8]]
+  Q60 <- qs[[12]]
+  Q80 <- qs[[16]]
+
+  data_group$scalePRS_risk_Q20 <- cut(
+    data_group$scalePRS,
+    breaks = c(-Inf, Q20, Q40, Q60, Q80, Inf),
+    labels = 1:5,
+    include.lowest = TRUE
+  )
+  data_group$scalePRS_risk_Q20 <- as.factor(data_group$scalePRS_risk_Q20)
+
+  model <- coxph(Surv(GC_time, GC_new) ~ scalePRS_risk_Q20 + Age + factor(Sex) +
+                 PCA1 + PCA2 + PCA3 + PCA4 + PCA5 + PCA6 + PCA7 + PCA8 + PCA9 + PCA10,
+                 data = data_group)
+  res3 <- exp(coef(model))
+  res4 <- exp(confint(model))
+
+  HR <- c(1, as.numeric(res3[1:4]))
+  UP <- c(NA, res4[1:4, 2])
+  DOWN <- c(NA, res4[1:4, 1])
+  Q <- c("20", "40", "60", "80", "100")
+
+  plotdata <- data.frame(Q = as.numeric(Q), HR, UP, DOWN)
+   
+  trend_model <- lm(HR ~ Q, data = (plotdata))
+  trend_p <- summary(trend_model)$coefficients[2,4]
+  ymin = coef(trend_model)["(Intercept)"] + 20*coef(trend_model)[2]
+  ymax = coef(trend_model)["(Intercept)"] + 100*coef(trend_model)[2]
+
+  list(
+    plotdata = plotdata,
+    model = model,
+    p_trend = trend_p,
+    ymin = ymin,
+    ymax = ymax
+  )
+}
+#------------6B——CKB——END-----------------
+
+dat=fread('./CKB_PRS')
+dat=subset(dat,PRS_group!='FrVars_BOTH')
+results_by_group <- dat %>%
+  group_split(PRS_group) %>%
+  setNames(unique(dat$PRS_group)) %>%
+  lapply(analyze_by_group)
+
+plotdata_1 = results_by_group[["FrVars_ALL"]]$plotdata      
+p_1 = results_by_group[["FrVars_ALL"]]$p_trend 
+ymin_1 = results_by_group[["FrVars_ALL"]]$ymin
+ymax_1 = results_by_group[["FrVars_ALL"]]$ymax
+
+plotdata_3 = results_by_group[["Tag"]]$plotdata      
+p_3 = results_by_group[["Tag"]]$p_trend 
+ymin_3 = results_by_group[["Tag"]]$ymin
+ymax_3 = results_by_group[["Tag"]]$ymax
+
+  plotdata_1$Group <- "FrVars_ALL"
+  plotdata_3$Group <- "Tag"
+  plotdata <- rbind(plotdata_1,plotdata_3)
+  plotdata=as.data.frame(plotdata)
+
+plotdata$Q <- factor(plotdata$Q, levels = c(20, 40, 60, 80, 100))
+plotdata <- plotdata %>%
+  mutate(x_shifted = as.numeric(Q) + case_when(
+    Group == "FrVars_ALL" ~ -0.5,
+    Group == "FrVars_BOTH" ~ 0,
+    Group == "Tag" ~ 0.5
+  ))
+
+p <- ggplot(data = plotdata, aes(x = x_shifted, y = HR, color = Group, fill = Group)) +
+  geom_point(size = 10, shape = 22) +  
+  geom_errorbar(aes(ymin = DOWN, ymax = UP), width = 0.2) + 
+  geom_segment(x = 1, y = 1, xend = 5, yend = 1, color = 'black',linetype = 'dashed') +
+
+  geom_segment(aes(x = 0.5, y = ymin_1, xend = 4.5, yend = ymax_1),color = '#e06c77') +
+  geom_segment(aes(x = 1.5, y = ymin_3, xend = 5.5, yend = ymax_3),color = '#ffdc7c') +
+
+  annotate("text", x = 0.5, y = 2, size = 5, hjust=0, label = paste0('Ptrend = ', format(p_1, scientific = TRUE, digits = 3)),color = "#e06c77")+ 
+  annotate("text", x = 0.5, y = 1.8, size = 5, hjust=0, label = paste0('Ptrend = ', format(p_3, scientific = TRUE, digits = 3)),color = "#ffdc7c")+ 
+
+  labs(x = "Normalized PRS", y = "HR (95% CI)") +
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 18),
+    legend.position = "top",
+    legend.title = element_blank()
+  ) +
+  scale_color_manual(values = c(
+    "FrVars_ALL" = "#e06c77",
+    "Tag" = "#ffdc7c"
+  )) +
+  scale_fill_manual(values = c(
+    "FrVars_ALL" = "#e06c77",
+    "Tag" = "#ffdc7c"
+  ))
+
+path = paste0("Figure_6B_CKB.pdf")
+ggsave(path, width = 8, height = 8, plot = p)
+
+# ========================================== Figure 6B UKB
+
+#-----UKB，封装函数，计算5组OR-----
+analyze_by_group <- function(data_group) {
+  qs <- quantile(data_group$scalePRS, probs = seq(0.05, 1, 0.05), na.rm = TRUE)
+  Q20 <- qs[[4]]
+  Q40 <- qs[[8]]
+  Q60 <- qs[[12]]
+  Q80 <- qs[[16]]
+
+  data_group$scalePRS_risk_Q20 <- cut(
+    data_group$scalePRS,
+    breaks = c(-Inf, Q20, Q40, Q60, Q80, Inf),
+    labels = 1:5,
+    include.lowest = TRUE
+  )
+  data_group$scalePRS_risk_Q20 <- as.factor(data_group$scalePRS_risk_Q20)
+
+  model <- coxph(Surv(GC_time, GC_new) ~ scalePRS_risk_Q20 + Age + factor(Sex) +
+                   PCA1 + PCA2 + PCA3 + PCA4 + PCA5 + PCA6 + PCA7 + PCA8 + PCA9 + PCA10,
+                 data = data_group)
+  res3 <- exp(coef(model))
+  res4 <- exp(confint(model))
+
+  HR <- c(1, as.numeric(res3[1:4]))
+  UP <- c(NA, res4[1:4, 2])
+  DOWN <- c(NA, res4[1:4, 1])
+  Q <- c("20", "40", "60", "80", "100")
+
+  plotdata <- data.frame(Q = as.numeric(Q), HR, UP, DOWN)
+
+  trend_model <- lm(HR ~ Q, data = (plotdata))
+  trend_p <- summary(trend_model)$coefficients[2, 4]
+  ymin = coef(trend_model)["(Intercept)"] + 20*coef(trend_model)[2]
+  ymax = coef(trend_model)["(Intercept)"] + 100*coef(trend_model)[2]
+
+  list(
+    plotdata = plotdata,
+    model = model,
+    p_trend = trend_p,
+    ymin = ymin,
+    ymax = ymax
+  )
+}
+#------------6B——UKB——END-----------------
+
+dat=fread('./UKB_PRS')
+dat=subset(dat,PRS_group!='FrVars_BOTH')
+results_by_group <- dat %>%
+  group_split(PRS_group) %>%
+  setNames(unique(dat$PRS_group)) %>%
+  lapply(analyze_by_group)
+
+plotdata_1 = results_by_group[["FrVars_ALL"]]$plotdata      
+p_1 = results_by_group[["FrVars_ALL"]]$p_trend 
+ymin_1 = results_by_group[["FrVars_ALL"]]$ymin
+ymax_1 = results_by_group[["FrVars_ALL"]]$ymax
+
+plotdata_3 = results_by_group[["Tag"]]$plotdata      
+p_3 = results_by_group[["Tag"]]$p_trend 
+ymin_3 = results_by_group[["Tag"]]$ymin
+ymax_3 = results_by_group[["Tag"]]$ymax
+
+  plotdata_1$Group <- "FrVars_ALL"
+  plotdata_3$Group <- "Tag"
+  plotdata <- rbind(plotdata_1, plotdata_3)
+  plotdata=as.data.frame(plotdata)
+
+plotdata$Q <- factor(plotdata$Q, levels = c(20, 40, 60, 80, 100))
+plotdata <- plotdata %>%
+  mutate(x_shifted = as.numeric(Q) + case_when(
+    Group == "FrVars_ALL" ~ -0.5,
+    Group == "Tag" ~ 0.5
+  ))
+
+p <- ggplot(data = plotdata, aes(x = x_shifted, y = HR, color = Group, fill = Group)) +
+  geom_point(size = 10, shape = 22) +  
+  geom_errorbar(aes(ymin = DOWN, ymax = UP), width = 0.2) + 
+  geom_segment(x = 1, y = 1, xend = 5, yend = 1, color = 'black',linetype = 'dashed') +
+
+  geom_segment(aes(x = 0.5, y = ymin_1, xend = 4.5, yend = ymax_1),color = '#e06c77') +
+  geom_segment(aes(x = 1.5, y = ymin_3, xend = 5.5, yend = ymax_3),color = '#ffdc7c') +
+
+  annotate("text", x = 0.5, y = 2, size = 5, hjust=0, label = paste0('Ptrend = ', format(p_1, scientific = TRUE, digits = 3)),color = "#e06c77")+ 
+  annotate("text", x = 0.5, y = 1.8, size = 5, hjust=0, label = paste0('Ptrend = ', format(p_3, scientific = TRUE, digits = 3)),color = "#ffdc7c")+ 
+
+  labs(x = "Normalized PRS", y = "HR (95% CI)") +
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 18),
+    legend.position = "top",
+    legend.title = element_blank()
+  ) +
+  scale_color_manual(values = c(
+    "FrVars_ALL" = "#e06c77",
+    "Tag" = "#ffdc7c"
+  )) +
+  scale_fill_manual(values = c(
+    "FrVars_ALL" = "#e06c77",
+    "Tag" = "#ffdc7c"
+  ))
+
+path = paste0("Figure_6B_UKB.pdf")
+ggsave(path, width = 8, height = 8, plot = p)
+
+# ========================================== Figure 6C CKB
+
+# CKB
+alldata=fread('./CKB_PRS')
+alldata=subset(alldata,PRS_group=='FrVars_ALL')
+groups <- unique(alldata$PRS_group)
+fit_list <- list()
+stati_list <- list()
+
+for (i in groups) {
+  dat <- alldata[alldata$PRS_group == i, ]
+
+qs <- quantile(dat$scalePRS, probs = seq(0.2, 1, 0.2), na.rm = TRUE)
+  Q20 <- qs[[1]]
+  Q80 <- qs[[4]]
+
+dat$scalePRS_3group=0
+dat[dat$scalePRS<=Q20,]$scalePRS_3group=1
+dat[dat$scalePRS>Q20&dat$scalePRS<=Q80,]$scalePRS_3group=2
+dat[dat$scalePRS>Q80,]$scalePRS_3group=3
+
+dat$scalePRS_3group = as.factor(dat$scalePRS_3group)
+modelA<-coxph(Surv(GC_time,GC_new)~scalePRS_3group+Age+Sex+PCA1+PCA2+PCA3+PCA4+PCA5+PCA6+PCA7+PCA8+PCA9+PCA10,data=dat,x=TRUE)
+g = summary(modelA)
+P1_Q3 <- formatC(g[["coefficients"]][1, 5], format = "e", digits = 3)
+HR1_Q3 = round(g[["conf.int"]][1,1],2)
+UP1_Q3 = round(g[["conf.int"]][1,3],2)
+DOWN1_Q3 = round(g[["conf.int"]][1,4],2)
+
+P2_Q3 <- formatC(g[["coefficients"]][2, 5], format = "e", digits = 3)
+HR2_Q3 = round(g[["conf.int"]][2,1],2)
+UP2_Q3 = round(g[["conf.int"]][2,3],2)
+DOWN2_Q3 = round(g[["conf.int"]][2,4],2)
+ 
+stati = c("Low Risk",paste0('Medium Risk HR = ',HR1_Q3 ,' (',UP1_Q3,',',DOWN1_Q3,')',' P=',P1_Q3),paste0('High Risk HR = ',HR2_Q3 ,' (',UP2_Q3,',',DOWN2_Q3,')',' P=',P2_Q3))
+
+modelB =coxph(Surv(GC_time,GC_new)~scalePRS_3group,data=dat)
+dat_df = with(dat,
+               data.frame(scalePRS_3group = c(1, 2, 3), 
+                          Age=rep(mean(Age,na.rm = TRUE),3),
+                          Sex = rep(mean(Sex,na.rm = TRUE),3),
+                          PCA1=rep(mean(PCA1,na.rm = TRUE),3),
+                          PCA2=rep(mean(PCA2,na.rm = TRUE),3),
+                          PCA3=rep(mean(PCA3,na.rm = TRUE),3),
+                          PCA4=rep(mean(PCA4,na.rm = TRUE),3),
+                          PCA5=rep(mean(PCA5,na.rm = TRUE),3),
+                          PCA6=rep(mean(PCA6,na.rm = TRUE),3),
+                          PCA7=rep(mean(PCA7,na.rm = TRUE),3),
+                          PCA8=rep(mean(PCA8,na.rm = TRUE),3),
+                          PCA9=rep(mean(PCA9,na.rm = TRUE),3),
+                          PCA10=rep(mean(PCA10,na.rm = TRUE),3)))
+
+dat_df$scalePRS_3group=as.factor(dat_df$scalePRS_3group)
+fit2 = survfit(modelB, newdata = dat_df)
+
+fit_list[[i]]=fit2
+stati_list[[i]]=stati
+}
+
+library(scales)
+p1= ggsurvplot(fit_list[['FrVars_ALL']],
+              linetype=c(1,1,1),
+              conf.int=TRUE,conf.int.fill="gray",conf.int.style="ribbon",conf.int.alpha=0.1,
+              xlim=c(0,12), 
+              #ylim=c(0,12500),
+              xlab=c("Years of follow-up"),ylab=c("Cumulative incidence \n (per 100,000 person-years)"),
+              legend=c(0.4,0.8),legend.title="PRS",legend.labs=stati_list[['FrVars_ALL']],          
+              risk.table.col="strata",
+              palette=c("#ffc5b5","#b54c62","#B31800"),
+              ggtheme=theme_bw()+ 
+              theme(panel.grid=element_blank()),
+              fun="event",font.xtickslab=12,font.ytickslab=12,font.x=14,font.y=14, font.legend=10,
+              censor=FALSE,dat=dat_df)
+p1 = p1$plot + scale_y_continuous(
+  limits = c(0, 0.0125),
+  labels = label_number(scale = 100000)
+)
+
+
+p = p1
+path = paste0("Figure_6C_CKB.pdf")
+ggsave(path,p,width = 8, height = 8)
+
+# ========================================== Figure 6C UKB
+
+# UKB
+alldata=fread('./UKB_PRS')
+alldata=subset(alldata,PRS_group=='FrVars_ALL')
+groups <- unique(alldata$PRS_group)
+fit_list <- list()
+stati_list <- list()
+
+for (i in groups) {
+  dat <- alldata[alldata$PRS_group == i, ]
+
+qs <- quantile(dat$scalePRS, probs = seq(0.2, 1, 0.2), na.rm = TRUE)
+  Q20 <- qs[[1]]
+  Q80 <- qs[[4]]
+
+dat$scalePRS_3group=0
+dat[dat$scalePRS<=Q20,]$scalePRS_3group=1
+dat[dat$scalePRS>Q20&dat$scalePRS<=Q80,]$scalePRS_3group=2
+dat[dat$scalePRS>Q80,]$scalePRS_3group=3
+
+dat$scalePRS_3group = as.factor(dat$scalePRS_3group)
+modelA<-coxph(Surv(GC_time,GC_new)~scalePRS_3group+Age+Sex+PCA1+PCA2+PCA3+PCA4+PCA5+PCA6+PCA7+PCA8+PCA9+PCA10,data=dat,x=TRUE)
+g = summary(modelA)
+P1_Q3 <- formatC(g[["coefficients"]][1, 5], format = "e", digits = 3)
+HR1_Q3 = round(g[["conf.int"]][1,1],2)
+UP1_Q3 = round(g[["conf.int"]][1,3],2)
+DOWN1_Q3 = round(g[["conf.int"]][1,4],2)
+
+P2_Q3 <- formatC(g[["coefficients"]][2, 5], format = "e", digits = 3)
+HR2_Q3 = round(g[["conf.int"]][2,1],2)
+UP2_Q3 = round(g[["conf.int"]][2,3],2)
+DOWN2_Q3 = round(g[["conf.int"]][2,4],2)
+ 
+stati = c("Low Risk",paste0('Medium Risk HR = ',HR1_Q3 ,' (',UP1_Q3,',',DOWN1_Q3,')',' P=',P1_Q3),paste0('High Risk HR = ',HR2_Q3 ,' (',UP2_Q3,',',DOWN2_Q3,')',' P=',P2_Q3))
+
+modelB =coxph(Surv(GC_time,GC_new)~scalePRS_3group,data=dat)
+dat_df = with(dat,
+               data.frame(scalePRS_3group = c(1, 2, 3), 
+                          Age=rep(mean(Age,na.rm = TRUE),3),
+                          Sex = rep(mean(Sex,na.rm = TRUE),3),
+                          PCA1=rep(mean(PCA1,na.rm = TRUE),3),
+                          PCA2=rep(mean(PCA2,na.rm = TRUE),3),
+                          PCA3=rep(mean(PCA3,na.rm = TRUE),3),
+                          PCA4=rep(mean(PCA4,na.rm = TRUE),3),
+                          PCA5=rep(mean(PCA5,na.rm = TRUE),3),
+                          PCA6=rep(mean(PCA6,na.rm = TRUE),3),
+                          PCA7=rep(mean(PCA7,na.rm = TRUE),3),
+                          PCA8=rep(mean(PCA8,na.rm = TRUE),3),
+                          PCA9=rep(mean(PCA9,na.rm = TRUE),3),
+                          PCA10=rep(mean(PCA10,na.rm = TRUE),3)))
+
+dat_df$scalePRS_3group=as.factor(dat_df$scalePRS_3group)
+fit2 = survfit(modelA, newdata = dat_df)
+
+fit_list[[i]]=fit2
+stati_list[[i]]=stati
+}
+
+library(scales)
+p1=ggsurvplot(fit_list[['FrVars_ALL']],
+              linetype=c(1,1,1),
+              conf.int=TRUE,conf.int.fill="gray",conf.int.style="ribbon",conf.int.alpha=0.1,
+              xlim=c(0,12), 
+              #ylim=c(0,0.0021),
+              xlab=c("Years of follow-up"),ylab=c("Cumulative incidence \n (per 100,000 person-years)"),
+              legend=c(0.4,0.8),legend.title="PRS",legend.labs=stati_list[['FrVars_ALL']],          
+              risk.table.col="strata",
+              palette=c("#ffc5b5","#b54c62","#B31800"),
+              ggtheme=theme_bw()+ 
+              theme(panel.grid=element_blank()),
+              fun="event",font.xtickslab=12,font.ytickslab=12,font.x=14,font.y=14, font.legend=10,
+              censor=FALSE,dat=dat_df)
+p1 = p1$plot + scale_y_continuous(
+  limits = c(0, 0.0022),
+  labels = label_number(scale = 100000)
+)
+
+
+p = p1
+path = paste0("Figure_6C_UKB.pdf")
+ggsave(path,p,width = 8, height = 8)
+
+# ========================================== Figure 6D CKB
+
+library(tidyr)
+library(dplyr)
+library(survival)
+library(broom)  
+
+# CKB
+DATA=fread('Lifestyle_PRS_CKB.csv')
+
+# 统计病例数
+
+tab <- subset(DATA, PRS_cat_3 == 1)
+low_PRS <- as.data.frame(table(tab$lifestyle_cat_3, tab$GC))
+low_PRS$PRS_group <- "Low"
+
+tab <- subset(DATA, PRS_cat_3 == 2)
+median_PRS <- as.data.frame(table(tab$lifestyle_cat_3, tab$GC))
+median_PRS$PRS_group <- "Medium"
+
+tab <- subset(DATA, PRS_cat_3 == 3)
+high_PRS <- as.data.frame(table(tab$lifestyle_cat_3, tab$GC))
+high_PRS$PRS_group <- "High"
+
+N_case_PRS <- rbind(low_PRS, median_PRS, high_PRS)
+N_case_PRS <- N_case_PRS %>%
+  pivot_wider(
+    names_from = Var2,      
+    values_from = Freq,     
+    names_prefix = "case_" 
+  ) %>%
+  as.data.frame()
+  
+colnames(N_case_PRS) <- c("health_cat", "PRS_group",'control','case')
+N_case_PRS$all=N_case_PRS$control+N_case_PRS$case
+N_case_PRS$table_formate=paste0(N_case_PRS$case,'/',N_case_PRS$all)
+
+# > N_case_PRS
+    # health_cat PRS_group control case
+# 1   Favourable       Low    2843    7
+# 2 Intermediate       Low   13509   57
+# 3 Unfavourable       Low    3592   36
+# 4   Favourable    Medium    7978   32
+# 5 Intermediate    Medium   40720  248
+# 6 Unfavourable    Medium   11005  149
+# 7   Favourable      High    2703   13
+# 8 Intermediate      High   13633  103
+# 9 Unfavourable      High    3545   47
+
+# 计算 person-year
+
+incidence_table <- DATA %>%
+  group_by(PRS_cat_3, lifestyle_cat_3) %>%
+  summarise(
+    person_years = sum(GC_time, na.rm = TRUE),
+    cases = sum(GC == 1, na.rm = TRUE),
+    incidence_per_100k = (cases / person_years) * 100000
+  ) %>%
+  arrange(PRS_cat_3, lifestyle_cat_3) %>%
+  as.data.frame()
+  
+# > incidence_table
+  # PRS_cat_3 lifestyle_cat_3 person_years cases incidence_per_100k
+# 1         1      Favourable     29319.05     7           23.87526
+# 2         1    Intermediate    133873.73    57           42.57744
+# 3         1    Unfavourable     34675.71    36          103.81908
+# 4         2      Favourable     82315.43    32           38.87485
+# 5         2    Intermediate    403404.90   248           61.47670
+# 6         2    Unfavourable    106754.84   149          139.57212
+# 7         3      Favourable     27844.83    13           46.68730
+# 8         3    Intermediate    135241.98   103           76.15978
+# 9         3    Unfavourable     34156.62    47          137.60144
+
+  
+# 计算 COX 回归，生成表格
+
+DATA <- DATA %>%
+  mutate(combined_group = paste0("PRS", PRS_cat_3, "_", lifestyle_cat_3)) %>%
+  mutate(combined_group = factor(combined_group))  # 转为因子变量
+
+DATA$combined_group <- relevel(DATA$combined_group, ref = "PRS1_Favourable") # 设置参考组
+
+cox_model <- coxph(Surv(GC_time, GC) ~ combined_group+Age+Gender+
+			 pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10, data = DATA)
+results <- summary(cox_model)
+P <- formatC(
+  c(1,
+    results[["coefficients"]][1,5],
+    results[["coefficients"]][2,5],
+    results[["coefficients"]][3,5],
+    results[["coefficients"]][4,5],
+    results[["coefficients"]][5,5],
+    results[["coefficients"]][6,5],
+    results[["coefficients"]][7,5],
+    results[["coefficients"]][8,5]),
+  format = "e", digits = 3
+)
+HR = c(round(c(1,
+			  results[["conf.int"]][1,1],
+			  results[["conf.int"]][2,1],
+			  results[["conf.int"]][3,1],
+			  results[["conf.int"]][4,1],
+			  results[["conf.int"]][5,1],
+			  results[["conf.int"]][6,1],
+			  results[["conf.int"]][7,1],
+			  results[["conf.int"]][8,1]
+			  ),2))
+DOWN = c(round(c(1,
+			  results[["conf.int"]][1,3],
+			  results[["conf.int"]][2,3],
+			  results[["conf.int"]][3,3],
+			  results[["conf.int"]][4,3],
+			  results[["conf.int"]][5,3],
+			  results[["conf.int"]][6,3],
+			  results[["conf.int"]][7,3],
+			  results[["conf.int"]][8,3]
+			  ),2))
+UP = c(round(c(1,
+			  results[["conf.int"]][1,4],
+			  results[["conf.int"]][2,4],
+			  results[["conf.int"]][3,4],
+			  results[["conf.int"]][4,4],
+			  results[["conf.int"]][5,4],
+			  results[["conf.int"]][6,4],
+			  results[["conf.int"]][7,4],
+			  results[["conf.int"]][8,4]
+			  ),2))
+label <- c("Low genetic risk | Favourable lifestyle", 
+		   'Low genetic risk | Intermediate lifestyle',
+		   'Low genetic risk | Unfavourable lifestyle',
+           "Intermediate genetic risk | Favourable lifestyle", 
+		   'Intermediate genetic risk | Intermediate lifestyle',
+		   'Intermediate genetic risk | Unfavourable lifestyle',
+           "High genetic risk | Favourable lifestyle", 
+		   'High genetic risk | Intermediate lifestyle',
+		   'High genetic risk | Unfavourable lifestyle'
+           )
+
+forest_df <- data.frame(
+  Group = label,
+  HR = HR,
+  CI_lower = DOWN,
+  CI_upper = UP,
+  P_value = P
+)
+
+# > forest_df
+                                               Group   HR CI_lower CI_upper
+# 1            Low genetic risk | Favourable lifestyle 1.00     1.00     1.00
+# 2          Low genetic risk | Intermediate lifestyle 1.34     0.61     2.95
+# 3          Low genetic risk | Unfavourable lifestyle 2.33     1.02     5.31
+# 4   Intermediate genetic risk | Favourable lifestyle 1.58     0.70     3.57
+# 5 Intermediate genetic risk | Intermediate lifestyle 1.96     0.92     4.17
+# 6 Intermediate genetic risk | Unfavourable lifestyle 3.18     1.47     6.88
+# 7           High genetic risk | Favourable lifestyle 1.87     0.75     4.68
+# 8         High genetic risk | Intermediate lifestyle 2.44     1.13     5.27
+# 9         High genetic risk | Unfavourable lifestyle 3.15     1.40     7.05
+    # P_value
+# 1 1.000e+00
+# 2 4.665e-01
+# 3 4.367e-02
+# 4 2.746e-01
+# 5 8.068e-02
+# 6 3.270e-03
+# 7 1.826e-01
+# 8 2.275e-02
+# 9 5.344e-03
+
+# 差生分析森林图
+
+forest_df$Group <- factor(forest_df$Group, levels = rev(label))
+p=ggplot(forest_df, aes(x = Group, y = HR)) +
+  geom_point(size = 5,shape=15,color='#3f72af') +
+  geom_errorbar(aes(ymin = CI_lower, ymax = CI_upper), width = 0.3,color='#3f72af') +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(trans = "log2", 
+                     breaks = c(0.5,1,2,4,8),  
+                     labels = c("0.5","1", "2", "4",'8'),
+					 limits = c(0.5, 8)) +
+  labs(
+    title = "Hazard Ratios by PRS & Health Score Group",
+    x = "",
+    y = "Hazard Ratio (HR)"
+  ) +
+  theme_minimal(base_size = 14)+
+  theme(
+    axis.title.x = element_text(size = 20),  
+    axis.title.y = element_text(size = 10), 
+    axis.text.x = element_text(size = 18),  
+    axis.text.y = element_text(size = 10)    
+  )
+ggsave('Figure_6D_CKB.pdf',p)
+
+# ========================================== Figure 6D UKB
+
+library(tidyr)
+library(dplyr)
+library(survival)
+library(broom)  
+
+# UKB
+DATA=fread('Lifestyle_PRS_UKB.csv')
+
+# 统计病例数
+tab <- subset(DATA, PRS_cat_3 == 1)
+low_PRS <- as.data.frame(table(tab$lifestyle_cat_3, tab$GC_new))
+low_PRS$PRS_group <- "Low"
+
+tab <- subset(DATA, PRS_cat_3 == 2)
+median_PRS <- as.data.frame(table(tab$lifestyle_cat_3, tab$GC_new))
+median_PRS$PRS_group <- "Medium"
+
+tab <- subset(DATA, PRS_cat_3 == 3)
+high_PRS <- as.data.frame(table(tab$lifestyle_cat_3, tab$GC_new))
+high_PRS$PRS_group <- "High"
+
+N_case_PRS <- rbind(low_PRS, median_PRS, high_PRS)
+N_case_PRS <- N_case_PRS %>%
+  pivot_wider(
+    names_from = Var2,       
+    values_from = Freq,      
+    names_prefix = "case_"  
+  ) %>%
+  as.data.frame()
+colnames(N_case_PRS) <- c("health_cat", "PRS_group",'control','case')
+N_case_PRS$all=N_case_PRS$control+N_case_PRS$case
+N_case_PRS$table_formate=paste0(N_case_PRS$case,'/',N_case_PRS$all)
+
+# > N_case_PRS
+  # health_cat PRS_group control case    all table_formate
+# 1          1       Low   29343   42  29385      42/29385
+# 2          2       Low   34564   39  34603      39/34603
+# 3          3       Low   33361   37  33398      37/33398
+# 4          1    Medium   87513  153  87666     153/87666
+# 5          2    Medium  103461  158 103619    158/103619
+# 6          3    Medium  100743  127 100870    127/100870
+# 7          1      High   29001   57  29058      57/29058
+# 8          2      High   34106   56  34162      56/34162
+# 9          3      High   34117   48  34165      48/34165
+
+# 计算 person-year
+
+DATA=as.data.frame(DATA)
+DATA$PRS_cat_3=as.integer(DATA$PRS_cat_3)
+DATA$lifestyle_cat_3=as.integer(DATA$lifestyle_cat_3)
+incidence_table <- DATA %>%
+  group_by(PRS_cat_3, lifestyle_cat_3) %>%
+  summarise(
+    person_years = sum(GC_time, na.rm = TRUE),
+    cases = sum(GC_new == 1, na.rm = TRUE),
+    incidence_per_100k = (cases / person_years) * 100000
+  ) %>%
+  arrange(PRS_cat_3, lifestyle_cat_3) %>%
+  as.data.frame()
+  
+  # > incidence_table
+  # PRS_cat_3 lifestyle_cat_3 person_years cases incidence_per_100k
+# 1         1               1     372212.1    42          11.283888
+# 2         1               2     442323.6    39           8.817074
+# 3         1               3     427129.9    37           8.662469
+# 4         2               1    1109681.8   153          13.787737
+# 5         2               2    1324934.2   158          11.925120
+# 6         2               3    1289676.3   127           9.847433
+# 7         3               1     367169.0    57          15.524185
+# 8         3               2     436086.1    56          12.841500
+# 9         3               3     435928.9    48          11.010969
+
+# 计算 COX 回归，结果表格
+
+DATA <- DATA %>%
+  mutate(combined_group = paste0("PRS", PRS_cat_3, "_Score", lifestyle_cat_3)) %>%
+  mutate(combined_group = factor(combined_group))  # 转为因子变量
+
+DATA$combined_group <- relevel(DATA$combined_group, ref = "PRS1_Score2") # 设置参考组
+
+cox_model <- coxph(Surv(GC_time, GC_new) ~ combined_group+Age+Sex+
+		     PCA1+PCA2+PCA3+PCA4+PCA5+PCA6+PCA7+PCA8+PCA9+PCA10, data = DATA)
+results <- summary(cox_model)
+P <- formatC(
+  c(1,
+    results[["coefficients"]][2,5],
+    results[["coefficients"]][1,5],
+    results[["coefficients"]][5,5],
+    results[["coefficients"]][4,5],
+    results[["coefficients"]][3,5],
+    results[["coefficients"]][8,5],
+    results[["coefficients"]][7,5],
+    results[["coefficients"]][6,5]),
+  format = "e", digits = 3
+)
+
+HR = c(round(c(1,
+			  results[["conf.int"]][2,1],
+			  results[["conf.int"]][1,1],
+			  results[["conf.int"]][5,1],
+			  results[["conf.int"]][4,1],
+			  results[["conf.int"]][3,1],
+			  results[["conf.int"]][8,1],
+			  results[["conf.int"]][7,1],
+			  results[["conf.int"]][6,1]
+			  ),2))
+DOWN = c(round(c(1,
+			  results[["conf.int"]][2,3],
+			  results[["conf.int"]][1,3],
+			  results[["conf.int"]][5,3],
+			  results[["conf.int"]][4,3],
+			  results[["conf.int"]][3,3],
+			  results[["conf.int"]][8,3],
+			  results[["conf.int"]][7,3],
+			  results[["conf.int"]][6,3]
+			  ),2))
+UP = c(round(c(1,
+			  results[["conf.int"]][2,4],
+			  results[["conf.int"]][1,4],
+			  results[["conf.int"]][5,4],
+			  results[["conf.int"]][4,4],
+			  results[["conf.int"]][3,4],
+			  results[["conf.int"]][8,4],
+			  results[["conf.int"]][7,4],
+			  results[["conf.int"]][6,4]
+			  ),2))
+label <- c("Low genetic risk | Favourable lifestyle", 
+		   'Low genetic risk | Intermediate lifestyle',
+		   'Low genetic risk | Unfavourable lifestyle',
+           "Intermediate genetic risk | Favourable lifestyle", 
+		   'Intermediate genetic risk | Intermediate lifestyle',
+		   'Intermediate genetic risk | Unfavourable lifestyle',
+           "High genetic risk | Favourable lifestyle", 
+		   'High genetic risk | Intermediate lifestyle',
+		   'High genetic risk | Unfavourable lifestyle'
+           )
+
+forest_df <- data.frame(
+  Group = label,
+  HR = HR,
+  CI_lower = DOWN,
+  CI_upper = UP,
+  P_value = P
+)
+
+# > forest_df
+                                               # Group   HR CI_lower CI_upper
+# 1            Low genetic risk | Favourable lifestyle 1.00     1.00     1.00
+# 2          Low genetic risk | Intermediate lifestyle 0.92     0.59     1.44
+# 3          Low genetic risk | Unfavourable lifestyle 1.28     0.83     1.98
+# 4   Intermediate genetic risk | Favourable lifestyle 1.06     0.74     1.51
+# 5 Intermediate genetic risk | Intermediate lifestyle 1.36     0.96     1.93
+# 6 Intermediate genetic risk | Unfavourable lifestyle 1.57     1.11     2.24
+# 7           High genetic risk | Favourable lifestyle 1.23     0.80     1.87
+# 8         High genetic risk | Intermediate lifestyle 1.49     0.99     2.25
+# 9         High genetic risk | Unfavourable lifestyle 1.81     1.21     2.73
+    # P_value
+# 1 1.000e+00
+# 2 7.147e-01
+# 3 2.673e-01
+# 4 7.663e-01
+# 5 8.559e-02
+# 6 1.159e-02
+# 7 3.464e-01
+# 8 5.542e-02
+# 9 4.181e-03
+
+# 差生分析森林图
+
+forest_df$Group <- factor(forest_df$Group, levels = rev(label))
+p=ggplot(forest_df, aes(x = Group, y = HR)) +
+  geom_point(size = 5,shape=15,color='#3f72af') +
+  geom_errorbar(aes(ymin = CI_lower, ymax = CI_upper), width = 0.3,color='#3f72af') +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(trans = "log2", 
+                     breaks = c(0.5,1,2,4),  
+                     labels = c("0.5","1", "2", "4"),
+					 limits = c(0.5, 4)) +
+  labs(
+    title = "Hazard Ratios by PRS & Health Score Group",
+    x = "",
+    y = "Hazard Ratio (HR)"
+  ) +
+  theme_minimal(base_size = 14)+
+  theme(
+    axis.title.x = element_text(size = 20),  # X轴标题字体大小
+    axis.title.y = element_text(size = 10),  # Y轴标题字体大小
+    axis.text.x = element_text(size = 18),   # X轴刻度字体大小
+    axis.text.y = element_text(size = 10)    # Y轴刻度字体大小
+  )
+ggsave('Figure_6D_UKB.pdf',p)
+
+# ========================================== Figure 6E
+
+# CKB
+plot_data=fread('Absolute_risk_CKB.csv')
+
+P =ggplot(plot_data, aes(x = PRS_group, y = AbsoluteRisk_per100k, fill = Lifestyle_group)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_errorbar(aes(ymin = Lower95CI_per100k, ymax = Upper95CI_per100k),
+                position = position_dodge(width = 0.8), width = 0.2) +
+  geom_text(aes(label = round(AbsoluteRisk_per100k, 1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.5, size = 4) +
+  scale_fill_manual(values = custom_colors) +
+  labs(
+    x = "PRS group",
+    y = "Absolute Risk per 100,000 over 10 years",
+    fill = "Lifestyle group",
+    title = "10-Year Absolute Risk by PRS and Lifestyle"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+ggsave('Figure_6E_CKB.pdf',P)
+
+# UKB
+plot_data=fread('Absolute_risk_UKB.csv')
+
+P =ggplot(plot_data, aes(x = PRS_group, y = AbsoluteRisk_per100k, fill = Lifestyle_group)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_errorbar(aes(ymin = Lower95CI_per100k, ymax = Upper95CI_per100k),
+                position = position_dodge(width = 0.8), width = 0.2) +
+  geom_text(aes(label = round(AbsoluteRisk_per100k, 1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.5, size = 4) +
+  scale_fill_manual(values = custom_colors) +
+  labs(
+    x = "PRS group",
+    y = "Absolute Risk per 100,000 over 10 years",
+    fill = "Lifestyle group",
+    title = "10-Year Absolute Risk by PRS and Lifestyle"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+ggsave('Figure_6E_UKB.pdf',P)
+
+# ========================================== Figure 6F
+
+df <- fread("Yangzhou_PRS")
+
+# 把编码改成分组名
+df$group6 <- gsub("0", "Normal/AG", df$group6)
+df$group6 <- gsub("1", "IM", df$group6)
+df$group6 <- gsub("2", "DYS/GC", df$group6)
+
+# 指定显示顺序
+df$group6 <- factor(df$group6, levels = c("Normal/AG", "IM", "DYS/GC"))
+
+mycolor <- c('#1e56a0','#ff8260','#c86b85')
+
+# ---------- 1. FrVars_ALL
+sub_A <- df[df$PRS_group == "FrVars_ALL", ]
+
+pw_A <- pairwise.wilcox.test(sub_A$PRS, sub_A$group6, p.adjust.method = "none")
+txt_A <- paste(capture.output(print(round(pw_A$p.value, 3))), collapse = "\n")
+
+p1 <- ggplot(sub_A, aes(x = PRS, fill = group6)) +
+  geom_density(alpha = 0.6, color = "black") +
+  scale_fill_manual(values = mycolor, drop = FALSE) +
+  theme_bw() +
+  labs(x = "PRS", y = "Density", title = "FrVars_ALL") +
+  theme(axis.text = element_text(size = 14),
+        legend.position = "top",
+        plot.margin = margin(10, 60, 10, 10)) +
+  coord_cartesian(clip = "off") +
+  annotate("text", x = Inf, y = Inf, label = txt_A,
+           hjust = 1.02, vjust = 1.1, size = 3.5, family = "mono")
+
+# ---------- 2. Tag
+sub_B <- df[df$PRS_group == "Tag", ]
+
+pw_B <- pairwise.wilcox.test(sub_B$PRS, sub_B$group6, p.adjust.method = "none")
+txt_B <- paste(capture.output(print(round(pw_B$p.value, 3))), collapse = "\n")
+
+p2 <- ggplot(sub_B, aes(x = PRS, fill = group6)) +
+  geom_density(alpha = 0.6, color = "black") +
+  scale_fill_manual(values = mycolor, drop = FALSE) +
+  theme_bw() +
+  labs(x = "PRS", y = "Density", title = "Tag") +
+  theme(axis.text = element_text(size = 14),
+        legend.position = "top",
+        plot.margin = margin(10, 60, 10, 10)) +
+  coord_cartesian(clip = "off") +
+  annotate("text", x = Inf, y = Inf, label = txt_B,
+           hjust = 1.02, vjust = 1.1, size = 3.5, family = "mono")
+
+# ---------- 拼成一张图并导出
+g <- arrangeGrob(p1, p2, ncol = 2)
+ggsave("Figure_6F.pdf", g, width = 8, height = 4, units = "in")
+
+# ========================================== Figure 6G
+
+df <- fread("Yangzhou_PRS")
+
+# -----left
+sub_plotdata=df
+sub_plotdata$GC=ifelse(sub_plotdata$group6 %in% c(0,1),0,1) 
+sub_plotdata$GC=as.factor(sub_plotdata$GC)
+
+results_all <- data.frame() 
+
+# 循环计算两个组
+for (i in c('FrVars_ALL','Tag')) {
+  sub_plotdata_new <- subset(sub_plotdata, PRS_group == i)
+
+  sub_plotdata_new$PRS_decile <- cut(
+    sub_plotdata_new$scalePRS,
+    breaks = quantile(sub_plotdata_new$scalePRS, probs = seq(0, 1, 0.2), na.rm = TRUE),
+    include.lowest = TRUE,
+    labels = paste0("PRS", 1:5)
+  )
+# 回归
+  cox_model <- glm(GC ~ PRS_decile + age + sex +
+                     pc1 + pc2 + pc3 + pc4 + pc5 + pc6 + pc7 + pc8 + pc9 + pc10,
+                   data = sub_plotdata_new, family = binomial)
+  coef_table <- coef(summary(cox_model))
+  OR <- exp(coef(cox_model))
+  CI <- exp(confint.default(cox_model))
+
+  results_df <- data.frame(
+    Variable = names(OR),
+    OR = OR,
+    CI_lower = CI[,1],
+    CI_upper = CI[,2],
+    P_value = coef_table[,4],
+    row.names = NULL
+  )
+# 保留 PRS_decile 的部分并加上参考组
+  results_df <- results_df[grep("PRS_decile", results_df$Variable), ]
+  ref_row <- data.frame(Variable="PRS_decilePRS1", OR=1, CI_lower=1, CI_upper=1, P_value=1)
+  results_df <- rbind(ref_row, results_df)
+  results_df$PRS_group <- i
+
+  results_all <- rbind(results_all, results_df)
+}
+results_all$Decile <- gsub("PRS_decile", "", results_all$Variable)
+# 合并绘图
+p = ggplot(results_all,
+       aes(x = Decile, y = OR, ymin = CI_lower, ymax = CI_upper,
+           color = PRS_group, group = PRS_group)) +
+  geom_pointrange(position = position_dodge(width = 0.3)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  scale_color_manual(values = c("FrVars_ALL" = "#ff8260", "Tag" = "#1e56a0")) +
+  theme_bw() +
+  ylim(0, 3.5) +
+  ylab("Odds Ratio (95% CI)") +
+  xlab("PRS quintile") +
+  theme(axis.text = element_text(size = 13),
+        legend.title = element_blank(),
+        legend.position = "top")
+ggsave('Figure_6G_right.pdf',p)
+
+# -----right
+sub_plotdata=subset(df,group6!=1)  
+sub_plotdata$GC=ifelse(sub_plotdata$group6==0,0,1) 
+sub_plotdata$GC=as.factor(sub_plotdata$GC)
+
+results_all <- data.frame() 
+
+# 循环计算两个组
+for (i in c('FrVars_ALL','Tag')) {
+  sub_plotdata_new <- subset(sub_plotdata, PRS_group == i)
+
+  sub_plotdata_new$PRS_decile <- cut(
+    sub_plotdata_new$scalePRS,
+    breaks = quantile(sub_plotdata_new$scalePRS, probs = seq(0, 1, 0.2), na.rm = TRUE),
+    include.lowest = TRUE,
+    labels = paste0("PRS", 1:5)
+  )
+# 回归
+  cox_model <- glm(GC ~ PRS_decile + age + sex +
+                     pc1 + pc2 + pc3 + pc4 + pc5 + pc6 + pc7 + pc8 + pc9 + pc10,
+                   data = sub_plotdata_new, family = binomial)
+  coef_table <- coef(summary(cox_model))
+  OR <- exp(coef(cox_model))
+  CI <- exp(confint.default(cox_model))
+
+  results_df <- data.frame(
+    Variable = names(OR),
+    OR = OR,
+    CI_lower = CI[,1],
+    CI_upper = CI[,2],
+    P_value = coef_table[,4],
+    row.names = NULL
+  )
+# 保留 PRS_decile 的部分并加上参考组
+  results_df <- results_df[grep("PRS_decile", results_df$Variable), ]
+  ref_row <- data.frame(Variable="PRS_decilePRS1", OR=1, CI_lower=1, CI_upper=1, P_value=1)
+  results_df <- rbind(ref_row, results_df)
+  results_df$PRS_group <- i
+
+  results_all <- rbind(results_all, results_df)
+}
+results_all$Decile <- gsub("PRS_decile", "", results_all$Variable)
+# 合并绘图
+p = ggplot(results_all,
+       aes(x = Decile, y = OR, ymin = CI_lower, ymax = CI_upper,
+           color = PRS_group, group = PRS_group)) +
+  geom_pointrange(position = position_dodge(width = 0.3)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  scale_color_manual(values = c("FrVars_ALL" = "#ff8260", "Tag" = "#1e56a0")) +
+  theme_bw() +
+  ylim(0, 3.5) +
+  ylab("Odds Ratio (95% CI)") +
+  xlab("PRS quintile") +
+  theme(axis.text = element_text(size = 13),
+        legend.title = element_blank(),
+        legend.position = "top")
+ggsave('Figure_6G_left.pdf',p)
+
+
+# -----P trend 
+df <- fread("Yangzhou_PRS")
+
+# left
+sub_plotdata = df
+sub_plotdata$GC=ifelse(sub_plotdata$group6 %in% c(0,1),0,1) 
+sub_plotdata$GC=as.factor(sub_plotdata$GC)
+
+for( i in c('FrVars_ALL','Tag')){
+sub_plotdata_new=subset(sub_plotdata,PRS_group==i)
+
+sub_plotdata_new$PRS_decile <- cut(
+  sub_plotdata_new$scalePRS,
+  breaks = quantile(sub_plotdata_new$scalePRS, probs = seq(0, 1, 0.1), na.rm = TRUE),
+  include.lowest = F
+)
+
+sub_plotdata_new$PRS_decile=as.integer(sub_plotdata_new$PRS_decile)
+cox_model <- glm(GC ~ PRS_decile+age+sex+pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10, 
+				 data = sub_plotdata_new,family = binomial)
+s <- summary(cox_model)
+print(paste0(i,' P_trend = ',s$coefficients[grep("PRS_decile", rownames(s$coefficients)), "Pr(>|z|)"]))
+}
+# [1] "FrVars_ALL P_trend = 0.0155005807005407"
+# [1] "Tag P_trend = 0.0896483379103805"
+
+# right
+sub_plotdata=subset(df,group6!=1)  
+sub_plotdata$GC=ifelse(sub_plotdata$group6==0,0,1) 
+sub_plotdata$GC=as.factor(sub_plotdata$GC)
+
+for( i in c('FrVars_ALL','Tag')){
+sub_plotdata_new=subset(sub_plotdata,PRS_group==i)
+
+sub_plotdata_new$PRS_decile <- cut(
+  sub_plotdata_new$scalePRS,
+  breaks = quantile(sub_plotdata_new$scalePRS, probs = seq(0, 1, 0.1), na.rm = TRUE),
+  include.lowest = F
+)
+
+sub_plotdata_new$PRS_decile=as.integer(sub_plotdata_new$PRS_decile)
+cox_model <- glm(GC ~ PRS_decile+age+sex+pc1+pc2+pc3+pc4+pc5+pc6+pc7+pc8+pc9+pc10, 
+			 data = sub_plotdata_new,family = binomial)
+s <- summary(cox_model)
+print(paste0(i,' P_trend = ',s$coefficients[grep("PRS_decile", rownames(s$coefficients)), "Pr(>|z|)"]))
+}
+# [1] "FrVars_ALL P_trend = 0.0150516576883385"
+# [1] "Tag P_trend = 0.0740562025774821"
+
+
+# ========================================== 北肿结果
+
+# ------6F
+results_df = data.frame(
+	Variable = c('Q1','Q2','Q3','Q4'),
+	OR = c(1.00, 0.989, 1.112, 2.083),
+	CI_lower = c(1.00, 0.653, 0.705, 1.282),
+	CI_upper = c(1.00, 1.498, 1.756, 3.383),
+	P_value = c(1.00, 0.959, 0.648, 0.003)
+)
+
+    p <- ggplot(results_df, aes(x = factor(Variable,levels=results_df$Variable),
+                                y = OR, ymin = CI_lower, ymax = CI_upper)) +
+      geom_pointrange(color = "#ba1938") +
+	  #geom_pointrange(color = "#2F5597") +
+      geom_hline(yintercept = 1, linetype = "dashed", color = '#ba1938') +
+      ylim(0, 3.5) +
+      ylab("Odds Ratio (95% CI)") +
+      xlab("PRS decile") +
+      theme_bw()
+
+# ------S14E
+results_df <- data.frame(
+  Variable = c('Q1','Q2','Q3','Q4','Q1','Q2','Q3','Q4'),
+  OR = c(1.00, 0.64, 0.59, 1.60, 1.00, 1.09, 1.31, 2.26),
+  CI_lower = c(1.00, 0.24, 0.19, 0.53, 1.00, 0.69, 0.79, 1.31),
+  CI_upper = c(1.00, 1.75, 1.88, 4.89, 1.00, 1.73, 2.16, 3.89),
+  group = c('neg','neg','neg','neg','pos','pos','pos','pos')
+)
+
+results_df$Variable <- factor(results_df$Variable, levels = c("Q1", "Q2", "Q3", "Q4"))
+results_df$group <- factor(results_df$group, levels = c("neg", "pos"))
+results_df$x_num <- c(1, 2, 3, 4, 1, 2, 3, 4)
+
+pd <- position_dodge(width = 0.45)
+
+p <- ggplot(results_df, aes(x = x_num, y = OR, color = group)) +
+  geom_pointrange(
+    aes(ymin = CI_lower, ymax = CI_upper),
+    position = pd,
+    size = 0.6
+  ) +
+  geom_smooth(
+    aes(group = group),
+    method = "lm",
+    se = FALSE,
+    linewidth = 0.8
+  ) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey40") +
+  scale_color_manual(values = c("neg" = "#ba1938", "pos" = "#2F5597")) +
+  scale_x_continuous(
+    breaks = 1:4,
+    labels = c("Q1", "Q2", "Q3", "Q4")
+  ) +
+  coord_cartesian(ylim = c(0, 3.5)) +
+  ylab("Odds Ratio (95% CI)") +
+  xlab("PRS decile") +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    legend.title = element_blank()
+  )
+
+# ------S14J
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+									
+df <- data.frame(
+  group = rep(c("H. pylori treatment",
+                "Successful H. pylori eradication",
+                "Vitamin supplementation",
+                "Garlic supplementation"), each = 3),
+  prs = rep(c("Low", "Intermediate", "High"), times = 4),
+  progression = c(123,123,123, 123,123,123, 123,123,123, 123,123,123),
+  OR = c(0.90, 0.91, 0.53,
+         0.82, 0.78, 0.37,
+         0.87, 1.08, 0.81,
+         0.94, 1.00, 1.09),
+  lower = c(0.66, 0.70, 0.27,
+            0.58, 0.59, 0.17,
+            0.67, 0.87, 0.47,
+            0.72, 0.80, 0.62),
+  upper = c(1.23, 1.18, 1.03,
+            1.16, 1.05, 0.78,
+            1.13, 1.36, 1.40,
+            1.21, 1.25, 1.90)
+)
+
+df$prs <- factor(df$prs, levels = c("Low", "Intermediate", "High"))
+df$group <- factor(df$group, levels = c("H. pylori treatment",
+                                        "Successful H. pylori eradication",
+                                        "Vitamin supplementation",
+                                        "Garlic supplementation"))
+
+plot_fun <- function(dat, title_text) {
+  ggplot(dat, aes(y = prs, x = OR, xmin = lower, xmax = upper)) +
+    geom_errorbarh(height = 0.2, color = "#2F5597", linewidth = 0.7) +
+    geom_point(size = 2.5, color = "#2F5597") +
+    geom_vline(xintercept = 1, linetype = "dashed", color = "grey40") +
+    scale_x_continuous(
+      limits = c(0, 2.2),
+      breaks = c(0.5, 1.0, 1.5, 2.0)
+    ) +
+    labs(
+      title = title_text,
+      y = "Genetic risk (PRSfunctional)",
+      x = "OR (95% CI)"
+    ) +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 11),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 10),
+      axis.title = element_text(size = 11)
+    )
+}
+
+p1 <- plot_fun(
+  df %>% filter(group == "H. pylori treatment"),
+  "H. pylori treatment"
+)
+
+p2 <- plot_fun(
+  df %>% filter(group == "Successful H. pylori eradication"),
+  "Successful H. pylori eradication"
+)
+
+p3 <- plot_fun(
+  df %>% filter(group == "Vitamin supplementation"),
+  "Vitamin supplementation"
+)
+
+p4 <- plot_fun(
+  df %>% filter(group == "Garlic supplementation"),
+  "Garlic supplementation"
+)
+
+p_all <- (p1 | p2) / (p3 | p4)
+p_all
+
+# ------S14F
+df <- data.frame(
+  group = c("low_neg",'low_pos',
+                "middle_neg","middle_pos",
+                "high_neg","high_pos"),
+  OR = c(1.00, 1.51,
+         0.59, 1.80,
+         1.70, 3.38),
+  lower = c(1.00, 0.79,
+            0.25, 0.96,
+            0.59, 1.64),
+  upper = c(1.00,2.89,
+            1.37, 3.35,
+            4.83, 6.97)
+)
+
+df$group = factor(df$group, levels = rev(df$group))
+
+p = ggplot(df, aes(y = group, x = OR, xmin = lower, xmax = upper)) +
+    geom_errorbarh(height = 0.2, color = "#2F5597", linewidth = 0.7) +
+    geom_point(size = 2.5, color = "#2F5597") +
+    geom_vline(xintercept = 1, linetype = "dashed", color = "grey40") +
+	# scale_x_continuous(
+	  # trans = "log2",
+	  # breaks = c(0.25, 0.5, 1, 2, 4, 8),
+	  # labels = c("2^-2", "2^-1", "1", "2", "4", "8")
+	# )+
+    labs(
+      y = "Genetic risk (PRSfunctional)",
+      x = "OR (95% CI)"
+    ) +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold", hjust = 0.5, size = 11),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 10),
+      axis.title = element_text(size = 11)
+    )
+
+# ------6G，S14G-I
+dat <- data.frame(
+  intervention = c(
+    rep("H. pylori treatment", 3),
+    rep("Successful eradication", 3),
+    rep("Vitamin supplementation", 3),
+    rep("Garlic supplementation", 3)
+  ),
+  subgroup = rep(c("Q1", "Q2Q3", "Q4"), 4),
+  ARR = c(
+    1.81, 2.77, 7.14,
+    0.67, 4.25, 9.38,
+    -0.30, 0.75, 5.49,
+    1.71, 0.17, 2.76
+  ),
+  ARR_lower = c(
+    -1.74, -0.49, -2.13,
+    -3.41, 1.05, -0.21,
+    -3.19, -1.97, -2.35,
+    -1.47, -2.19, -4.92
+  ),
+  ARR_upper = c(
+    5.68, 6.10, 15.80,
+    4.99, 7.58, 17.94,
+    2.70, 3.34, 13.21,
+    4.74, 2.70, 11.01
+  ),
+  age = c(
+    47.2, 46.7, 47.2,
+    47.2, 46.7, 47.2,
+    47.2, 46.7, 47.2,
+    47.2, 46.7, 47.2
+  ),
+  sex = c(
+    49.8, 48.6, 49.6,
+    49.8, 48.6, 49.6,
+    49.8, 48.6, 49.6,
+    49.8, 48.6, 49.6
+  )
+)
+
+dat <- dat %>%
+  mutate(
+    subgroup = factor(subgroup, levels = c("Q1", "Q2Q3", "Q4")),
+    intervention = factor(intervention)
+  )
+
+plot_list <- lapply(levels(dat$intervention), function(intv) {
+  
+  ggplot(dat %>% filter(intervention == intv),
+         aes(x = subgroup, y = ARR, fill = subgroup)) +
+    geom_col(width = 0.65, color = NA, alpha = 0.85) +
+    geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+    labs(
+      x = NULL,
+      y = "Absolute risk reduction (%)",
+      title = intv
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(hjust = 0.5, face = "bold")
+    )
+})
+
+p_combined <- wrap_plots(plot_list, ncol = 4)

@@ -1,0 +1,519 @@
+conda activate Map
+cd /data1/gaoqian/Submission/MPRA_PRS/Figure5
+
+R
+library(data.table)
+library(ggplot2)
+library(magrittr)
+library(reshape2)
+library(scales)
+library(ggrepel)
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# ========================================== Figure 5A
+
+data=fread('combined_SNP_genes.csv')
+
+# 计算频数
+freq <- table(data$rsid)
+mean_val <- mean(freq)  # 4.735849
+
+freq_df <- data.frame(Freq = as.numeric(freq))
+
+p=ggplot(freq_df, aes(x = Freq)) +
+  geom_histogram(binwidth = 1, fill = "#637797", color = "black") +
+  geom_vline(xintercept = mean_val, linetype = "dashed", color = "#d47271") +
+  annotate("text", x = mean_val + 1, y = 20, label = paste0("Mean = ", round(mean_val,2)), color="#d47271") +
+  labs(title = "",
+       x = "Number of genes per SNP",
+       y = "Count") +
+  theme_minimal()
+ggsave('./Figure_5A.pdf',p)
+
+# ========================================== Figure 5B
+
+data=fread('combined_SNP_genes.csv')
+
+# 计算频数
+freq <- table(data$TargetGene)
+mean_val <- mean(freq)  # 2.743169
+
+freq_df <- data.frame(Freq = as.numeric(freq))
+
+p = ggplot(freq_df, aes(x = Freq)) +
+  geom_histogram(binwidth = 1, fill = "#637797", color = "black") +
+  geom_vline(xintercept = mean_val, linetype = "dashed", color = "#d47271") +
+  annotate("text", x = mean_val + 1, y = 20, label = paste0("Mean = ", round(mean_val,2)), color="#d47271") +
+  labs(title = "",
+       x = "Number of SNPs per gene",
+       y = "Count") +
+  theme_minimal()
+
+ggsave('./Figure_5B.pdf',p)
+
+# ========================================== Figure 5C
+
+# ---选择通路
+data=fread('Pathway_enrichment.csv')
+data$ID <- factor(data$ID, levels = data$ID[order(desc(data$pvalue))])
+data$logP=-log(data$pvalue,10)
+data=subset(data,select==1)
+
+# 绘图(外圈)
+pdf('Figure_5C.pdf',width=12)
+ggplot(data, aes(x = ID, y = OR, fill = logP)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_gradient(low = "#fecea8", high = "#e84a5f") +
+  theme_minimal() +
+  labs(
+    title = "",
+    x = "Pathway",
+    y = "OR",
+    fill = "-log10(P)"
+  )
+dev.off()
+
+# 绘图(内圈)
+# 基因列表：'Pathway_enrichment_Gene.list' STRING 在线生成
+
+# ========================================== Figure 5D
+
+# 载入单细胞数据
+library(factoextra)
+ALL_SIN_SG_nor_filter=load('ALL_SIN_SG_nor_filter.Rdata')
+
+use_colors <- c(ges="#65c294",hgc="#f3715c")
+p<-DimPlot(ALL_SIN_SG_nor_filter, reduction = "umap",
+		   pt.size=0.1,
+		   group.by='orig.ident',
+		   raster=FALSE
+		   )+
+   scale_color_manual(values = use_colors)
+ggsave('./Figure_5D.pdf', p, width = 6.5, height = 5.5)
+
+# ========================================== Figure 5E
+
+meta_sg<-ALL_SIN_SG_nor_filter@meta.data
+a<-as.data.frame(table(meta_sg$orig.ident,meta_sg$tag))
+write.csv(a,"sample_number_sg.csv",quote=F)
+a$group <- 'sg'
+ges_sg <- subset(a,Var1=='ges')
+hgc_sg <- subset(a,Var1=='hgc')
+
+a<-as.data.frame(table(meta_sg$orig.ident,meta_sg$group))
+a$group <- 'sgregion'
+ges_region <- subset(a,Var1=='ges')
+hgc_region <- subset(a,Var1=='hgc')
+summary(ges$Freq)
+   # Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+  # 179.0   815.5   965.0   935.0  1066.2  2377.0
+summary(hgc$Freq)
+   # Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+  # 180.0   657.0   775.0   762.6   871.8  1982.0
+ges <- rbind(ges_sg,ges_region)
+hgc <- rbind(hgc_sg,hgc_region)
+all <- rbind(ges,hgc)
+p=ggboxplot(all,'group', 'Freq',
+			fill = "group",
+			palette = c("#C2C2C2","#707070"),
+			add = "none"
+			)+
+  facet_wrap(~Var1, nrow = 1)+
+  labs(x="",y="Number of cells")+
+ggsave('Figure 5E.pdf', p, width = 6, height =4.5) 
+
+# ========================================== Figure 5F
+
+#提取下调基因DOWN
+df_ges1 <- read.table('./deg_1mb_target_ges.xls',h=T)
+df_hgc1 <- read.table('./deg_1mb_target_hgc.xls',h=T)
+df_ges2 <- subset(df_ges1,threshold=='Down') 
+df_hgc2 <- subset(df_hgc1,threshold=='Down')
+
+# 两者均下调
+both1 <- intersect(df_ges2$sg_gene,df_hgc2$sg_gene)
+both <- unique(c(both1,df_ges2$sg_gene,df_hgc2$sg_gene))
+both <- as.data.table(both)
+colnames(both) <- 'sg_gene'
+both[, "sg" := tstrsplit(sg_gene, "_")[1]]
+both[, "gene" := tstrsplit(sg_gene, "_")[2]]
+
+# 添加loci
+loci <- read.csv('sgrna_with_loci.csv')
+both <- left_join(both,loci,by=c('sg'='rsid'))
+both <- as.data.frame(both)
+both<-both[order(both[,'order']),]
+ges_plot <- left_join(both,df_ges1,by = 'sg_gene')
+hgc_plot <- left_join(both,df_hgc1,by = 'sg_gene')
+ges_plot$sg_gene <- paste(ges_plot$loci,ges_plot$sg_gene,sep='_')
+hgc_plot$sg_gene <- paste(hgc_plot$loci,hgc_plot$sg_gene,sep='_')
+ges_plot1 <- subset(ges_plot,gene!='MVD')
+hgc_plot1 <- subset(hgc_plot,gene!='MVD')
+both2 <- both1[-1]
+ges_plot1$sg_gene1 <- paste(ges_plot1$sg,ges_plot1$gene,sep='_')
+ges_plot2 <- subset(ges_plot1,sg_gene1%in%both2)
+ges_plot3 <- subset(ges_plot1,!sg_gene1%in%both2)
+ges_plot4 <- rbind(ges_plot2,ges_plot3)
+hgc_plot1$sg_gene1 <- paste(hgc_plot1$sg,hgc_plot1$gene,sep='_')
+hgc_plot2 <- subset(hgc_plot1,sg_gene1%in%both2)
+hgc_plot3 <- subset(hgc_plot1,!sg_gene1%in%both2)
+hgc_plot4 <- rbind(hgc_plot2,hgc_plot3)
+ges_plot4<-ges_plot4[order(ges_plot4[,'order']),]
+hgc_plot4<-hgc_plot4[order(hgc_plot4[,'order']),]
+
+# 画图
+library(ggplot2)
+library(patchwork)
+
+ges_plot4$sg_gene <-  factor(ges_plot4$sg_gene , levels=unique(ges_plot4$sg_gene), ordered=TRUE)
+p1<-ggplot(ges_plot4,aes(x=sg_gene,y=logFC,color=threshold))+
+  geom_point(size=4)+
+  scale_color_manual(values=c("Down"="#AE0000","Suggestive" = "#FF9797"))+
+  theme_bw()+
+  theme(legend.position="right",
+  axis.text = element_text(size = 11),axis.title = element_text(size = 14),axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  geom_hline(yintercept = 0,lty=3,col="black",lwd=0.5)+
+  ylab('Log2 fold change')+
+  xlab('')
+
+hgc_plot4$sg_gene <-  factor(hgc_plot4$sg_gene , levels=unique(hgc_plot4$sg_gene), ordered=TRUE)
+p2<-ggplot(hgc_plot4,aes(x=sg_gene,y=logFC,color=threshold))+
+  geom_point(size=4)+
+  scale_color_manual(values=c("Down"="#AE0000","Suggestive" = "#FF9797"))+
+  theme_bw()+
+  theme(legend.position="right",
+  axis.text = element_text(size = 11),axis.title = element_text(size = 14),axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  geom_hline(yintercept = 0,lty=3,col="black",lwd=0.5)+
+  ylab('Log2 fold change')+
+  xlab('')
+
+p = p1 / p2 
+ggsave('Figure_5F.pdf', p, width = 6, height = 10)
+
+# ========================================== Figure 5G
+
+library(ggpubr)
+
+df_ges1 <- read.table('./deg_1mb_target_ges.xls',h=T)
+df_hgc1 <- read.table('./deg_1mb_target_hgc.xls',h=T)
+df_ges1$group <- 'ges'
+df_hgc1$group <- 'hgc'
+df_all <- rbind(df_ges1,df_hgc1)
+df_all$FC <- 2^df_all$logFC
+df_all$percentage <- df_all$FC-1
+df_all$group1[df_all$threshold %in% c("Down")]<-"Hit"
+df_all$group1[df_all$threshold %in% c("Suggestive")]<-"Hit-Suggestive"
+df_all$group1[df_all$threshold %in% c("Insignificance")]<-"Non-Hit"
+df_all$percentage[df_all$percentage > 1]<-1
+p=ggboxplot(df_all,'group1', 'percentage',
+			fill = "group1",
+			palette = c("#f47920","#1d953f","#4e72b8"),
+			add = "none")+
+   labs(x = '', y = 'percentage downregulation')+
+   guides(fill=F)
+ggsave('Figure_5G.pdf', p, width = 4, height =5)
+
+# ========================================== Figure 5H
+
+# GWAS REGION
+gwas=fread('SPA17_region_GWAS')
+gwas_sig = subset(gwas,group=='gwas_sig')
+gwas_nosig = subset(gwas,group=='gwas_nosig')
+
+highlight_ids <- c("rs7927406")
+highlight_snps <- gwas[gwas$RSID %in% highlight_ids, ]
+highlight_snps$label_y <- highlight_snps$logp + 0.2
+highlight_snps$label_x <- highlight_snps$bp / 1e6 + 0.002
+
+p1 = ggplot() +
+  geom_point(data=gwas_nosig, aes(x = bp/1e6, y = logp), size = 5,color = 'grey') +
+  geom_point(data=gwas_sig, aes(x = bp/1e6, y = logp), size = 5,color = '#f08a5d') +
+  scale_x_continuous(limits = c(124.39, 124.70),  
+  labels = function(x) paste0(x, " Mb") 
+  )+
+  labs(x = "", y = "-log10(GWAS P)") +
+  geom_vline(data = highlight_snps, aes(xintercept = bp / 1e6), linetype = "dashed", color = "black",linewidth=0.5) +
+  geom_segment(data = highlight_snps,
+               aes(x = bp / 1e6, xend = label_x,y = logp, yend = label_y),
+               color = "black", linewidth = 0.3) +
+  geom_text(data = highlight_snps,
+            aes(x = label_x, y = label_y, label = RSID),
+            size = 6, color = "black", hjust = 0) +  
+  theme_minimal()+
+  theme(
+    axis.line.y = element_line(linewidth = 0.5, color = "black"),    
+	axis.line.x = element_blank(),    
+    axis.title = element_text(size = 28),
+	axis.text.x = element_blank(),
+	axis.text.y = element_text(size=20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.position = "right",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1),
+	axis.ticks.x = element_blank(),
+    axis.ticks.length = unit(0.2, "cm")
+  )
+
+# EQTL REGION
+eQTL=fread('SPA17_region_QTL')
+eqtl_sig = subset(eQTL,group=='sig')
+eqtl_nosig = subset(eQTL,group=='nosig')
+
+p2 = ggplot() +
+  geom_point(data=eqtl_nosig, aes(x = bp / 1e6, y = logp), size = 5,color = 'grey') +
+  geom_point(data=eqtl_sig, aes(x = bp / 1e6, y = logp), size = 5,color = '#9e579d') +
+  scale_x_continuous(limits = c(124.39, 124.70),  
+  labels = function(x) paste0(x, " Mb") 
+  )+
+  labs(x = "", y = "-log10(eQTL P)") +
+  geom_vline(data = highlight_snps, aes(xintercept = bp / 1e6), linetype = "dashed", color = "black",linewidth=0.5) +
+  geom_segment(data = highlight_snps,
+               aes(x = bp / 1e6, xend = label_x,y = logp, yend = label_y),
+               color = "black", linewidth = 0.3) +
+  geom_text(data = highlight_snps,
+            aes(x = label_x, y = label_y, label = RSID),
+            size = 6, color = "black", hjust = 0) +  
+  theme_minimal()+
+  theme(
+    axis.line.y = element_line(linewidth = 0.5, color = "black"),    
+	axis.line.x = element_blank(),    
+    axis.title = element_text(size = 28),
+	axis.text.x = element_blank(),
+	axis.text.y = element_text(size=20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.position = "right",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1),
+	axis.ticks.x = element_blank(),
+    axis.ticks.length = unit(0.2, "cm")
+  )
+
+# MPRA REGION
+data=fread('SPA17_region_MPRA')
+ges=subset(data,group=='ges')
+mkn=subset(data,group=='mkn')
+
+plot_list <- list()
+for(i in c('ges','mkn')){
+data=get(i)
+
+highlight_ids <- c("rs7927406")
+highlight_snps <- data[data$RSID %in% highlight_ids, ]
+highlight_snps$label_y <- highlight_snps$logp + 0.2
+highlight_snps$label_x <- highlight_snps$bp / 1e6 + 0.002
+
+data_sig <- data[data$FDR < 0.01 ,]
+data_nosig <- subset(data,!(RSID %in% data_sig$RSID))
+
+p = ggplot() +
+  geom_point(data=data_nosig, aes(x = bp / 1e6, y = logp, size=abs(log2FoldChange)),color = 'grey') +
+  geom_point(data=data_sig, aes(x = bp / 1e6, y = logp, size=abs(log2FoldChange)),color = '#b74242') +
+scale_size_continuous(
+  limits = c(0, 1.4),
+  breaks = c(0.2, 0.6, 1.0, 1.4),
+  range = c(2, 8),
+  name = 'MPRA Allelic activity' 
+) +
+  scale_x_continuous(limits = c(124.39, 124.70),  
+  labels = function(x) paste0(x, " Mb")
+  )+
+  labs(x = "chr 11", y = paste0("-log10(MPRA_",i," P)")) +
+  geom_vline(data = highlight_snps, aes(xintercept = bp / 1e6), linetype = "dashed", color = "black",linewidth=0.5) +
+  geom_segment(data = highlight_snps,
+               aes(x = bp / 1e6, xend = label_x,y = logp, yend = label_y),
+               color = "black", linewidth = 0.3) +
+  geom_text(data = highlight_snps,
+            aes(x = label_x, y = label_y, label = RSID),
+            size = 6, color = "black", hjust = 0) +  # hjust = 0 左对齐
+  theme_minimal()+
+  theme(
+    axis.line.y = element_line(linewidth = 0.5, color = "black"),    
+	axis.line.x = element_blank(),  
+    axis.title.y = element_text(size = 28),
+    axis.title.x = element_blank(),
+	axis.text.x = element_blank(),
+	axis.text.y = element_text(size=20),
+    legend.title = element_text(size = 20),
+    legend.text = element_text(size = 16),
+    legend.position = "right",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks.y = element_line(linewidth = 1),
+	axis.ticks.x = element_blank(),
+    axis.ticks.length = unit(0.2, "cm")
+  )
+   plot_list[[i]] <- p
+  }
+
+# SCORE REGION
+data=fread('SPA17_region_SCORE')
+
+  score_colors <- c(
+  HMM = "#D04B54",
+  ATAC = "#419193",
+  TFBS = "#734F84",
+  eqtl = "#5072A8",
+  njmu_loop = "#DE7D62"
+ )
+
+  p3_list <- list()
+  for (i in seq_along(score_colors)) {
+  score <- names(score_colors)[i]
+  plot_data <- subset(data, data[[score]] == 1)
+
+  show_x <- i == length(score_colors)
+
+  p3 <- ggplot(plot_data) +
+    geom_rect(aes(xmin = start, xmax = end, ymin = ymin, ymax = ymax),
+              fill = score_colors[[score]]) +
+		scale_x_continuous(
+		  limits = c(124.39, 124.70),
+		  labels = function(x) paste0(x, " Mb")
+		) +
+    labs(x = if (show_x) "Genomic Position" else "", y = "") +
+    ggtitle(score) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+      axis.line.y = element_line(linewidth = 0.5, color = "black"),
+      axis.title = element_text(size = 12),
+      axis.text.y = element_text(size = 6),
+      axis.text.x = if (show_x) element_text(size = 8) else element_blank(),
+      axis.ticks.x = if (show_x) element_line() else element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      legend.position = "none"
+    )
+  p3_list[[score]] <- p3
+  }
+  
+# 拼接所有图
+  library(patchwork)
+  library(gridExtra)
+  
+  output_file <- paste0('Figure_5H.pdf')
+  pdf(output_file, width = 20, height = 15)
+  
+  p3_combined <- wrap_plots(p3_list[c('HMM', 'ATAC', 'TFBS', 'eqtl', 'njmu_loop')], ncol = 1)
+  full_plot <- p1 / p2 / plot_list[['ges']] / plot_list[['mkn']] / p3_combined +
+  plot_layout(ncol = 1, heights = c(1,1, 0.5, 0.5, 1))
+
+  print(full_plot)  
+  dev.off()
+
+# ========================================== Figure 5I
+
+df_ges1 <- read.table('./deg_1mb_target_ges.xls',h=T)
+df_hgc1 <- read.table('./deg_1mb_target_hgc.xls',h=T)
+res_hgc <- subset(df_hgc1,sgRNA=='rs7927406')
+res_ges <- subset(df_ges1,sgRNA=='rs7927406')
+dat <- intersect(res_hgc$gene_id,res_ges$gene_id)
+
+res_hgc <- subset(res_hgc,gene_id%in%dat)
+res_ges <- subset(res_ges,gene_id%in%dat)
+res_hgc$signp <- res_hgc$logFC * -log10(res_hgc$PValue)
+res_ges$signp <- res_ges$logFC * -log10(res_ges$PValue)
+
+res_hgc$gene_id <- factor(res_hgc$gene_id, levels=res_hgc$gene_id, ordered=TRUE)
+res_hgc$threshold <- factor(res_hgc$threshold, levels=c('Down','Suggestive','Insignificance'), ordered=TRUE)
+p1 <- ggplot(res_hgc) +
+  theme_bw()+
+  geom_segment(aes(x=gene_id, xend=gene_id, y=0, yend=signp), color="grey",size=1) +
+  geom_point(aes(x=gene_id, y=signp, color=threshold), size=4) +
+  scale_color_manual(values = c("Down"="#AE0000","Suggestive" = "#FF9797","Insignificance"="gray50"),
+                     name = "Significance")+
+  geom_hline(yintercept = 0, lty=2,color = 'grey', lwd=0.8)+
+  labs(title = "Downregulation of genes by perturbation of rs7927406 in HGC-27",
+       x = "",
+       y = "Signed -log10P")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1),legend.position = "top")
+
+res_ges$gene_id <- factor(res_ges$gene_id, levels=res_ges$gene_id, ordered=TRUE)
+res_ges$threshold <- factor(res_ges$threshold, levels=c('Down','Suggestive','Insignificance'), ordered=TRUE)
+p2 <- ggplot(res_ges) +
+  theme_bw()+
+  geom_segment(aes(x=gene_id, xend=gene_id, y=0, yend=signp), color="grey",size=1) +
+  geom_point(aes(x=gene_id, y=signp, color=threshold), size=4) +
+  scale_color_manual(values = c("Down"="#AE0000","Suggestive" = "#FF9797","Insignificance"="gray50"),
+                     name = "Significance")+
+  geom_hline(yintercept = 0, lty=2,color = 'grey', lwd=0.8)+
+  labs(title = "Downregulation of genes by perturbation of rs7927406 in HGC-27",
+       x = "",
+       y = "Signed -log10P")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1),legend.position = "top")
+  
+p = p2 + p1 
+ggsave('Figure_5I.pdf', p, width = 12, height = 4)
+
+# ========================================== Figure 5J
+
+library(ggplot2)
+library(gridExtra)
+
+data=fread('SPA17_SNP_allelic.csv')
+ges=subset(data,group=='ges')
+mkn=subset(data,group=='mkn')
+p_ges="2.39e-04"
+p_mkn="1.02e-04"
+snp <- 'rs7927406'
+
+plots <- list()
+for (a in c('ges','mkn')) {
+
+    pval <- get(paste0('p_', a))
+	dt=get(a)
+    p <- ggplot(dt, aes(x = Allele, y = MPRAactivity, color = Allele)) +
+      geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.7)) +
+      geom_point(position = position_jitterdodge(jitter.width = 0.8), size = 1) +
+      geom_line(aes(group = Sample), color = "gray", lwd = 0.3, alpha = 0.8) +
+      labs(x = snp, y = paste0('P = ', pval), title = a) +
+      scale_color_manual(values = c("#61aa91", "#d87e6a")) +
+      theme_bw() +
+      theme(
+        panel.grid = element_blank(),
+        legend.title = element_blank(),
+        panel.border = element_rect(fill = NA, color = "black", linewidth = 1),
+        axis.text = element_text(size = 12, color = 'black'),
+        axis.title = element_text(size = 12, color = 'black'),
+        axis.line = element_line(color = "black"),
+        legend.position = 'none',
+        plot.title = element_text(hjust = 0.5, size = 12)
+      )
+
+    plots[[a]] <- p
+}
+
+combined_plot <- plots$ges | plots$mkn
+ggsave('Figure_5J.pdf',combined_plot)
+
+# ========================================== Figure 5L
+
+data=fread('SPA17_QTL_summary.csv')
+data=data[,-1]
+colnames(data)[4]='rs7927406'
+colnames(data)[3]='SPA17'
+
+p = ggplot(data, aes(x = factor(rs7927406,levels=c('TT','TG','GG')), y = SPA17, color = rs7927406)) +
+  geom_boxplot(outlier.shape = NA, position = position_dodge(width = 0.7)) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.6), size = 4) +   
+  scale_color_manual(values = c("GG" = "#87dfd6", "TT" = "#2f9296", "TG" = "#46b7b9")) +
+  labs(x = "", y = "TMM") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+  legend.title = element_blank(),
+  panel.border = element_rect(fill=NA,color="black", size=1, linetype="solid"),
+  axis.text = element_text(size = 12, color = 'black', face = 'plain'),
+  axis.title = element_text(size = 12, color = 'black', face = 'plain'),
+  axis.line = element_line(color = "black"),
+  legend.position = 'none') +
+  theme(legend.title = element_blank()) +
+  scale_x_discrete(limits = unique(data$Group))
+ggsave('./Figure_5L.pdf',p)  
+

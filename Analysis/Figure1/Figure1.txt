@@ -1,0 +1,458 @@
+
+conda activate Map
+cd /data1/gaoqian/Submission/MPRA_PRS/Figure1
+
+R
+library(data.table)
+library(ggplot2)
+library(reshape2)
+library(scales)
+library(ggrepel)
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# ========================================== Figure 1C
+
+# 读取文件
+GES_final=fread('./Skew_GES')
+MKN_final=fread('./Skew_MKN')
+GES_final$ID=ifelse(GES_final$L2FC>0,paste0(GES_final$rsid,':',GES_final$ALT,'>',GES_final$REF),
+									 paste0(GES_final$rsid,':',GES_final$REF,'>',GES_final$ALT))
+MKN_final$ID=ifelse(MKN_final$L2FC>0,paste0(MKN_final$rsid,':',MKN_final$ALT,'>',MKN_final$REF),
+									 paste0(MKN_final$rsid,':',MKN_final$REF,'>',MKN_final$ALT))
+# 点着色分组 
+for(a in c('GES_final','MKN_final')){
+dat=get(a)
+for (i in 1:nrow(dat)) {
+    if(dat$FDR[i] <= 0.01)
+    dat$group[i] = 'Sig'
+    if(dat$FDR[i] > 0.01)
+    dat$group[i] = 'noSig'
+}
+dmin = dat[which(dat$group == 'Sig'),]
+dat$logP = -log(dat$Pvalue,10)
+dat$group = factor(dat$group, levels = c("Sig","noSig"))
+dx = dat[dat$rsid %in% c('rs10000700','rs1971184','rs17611446','rs12448875','rs7451008'),] # 高亮后续验证的点
+
+# 画图
+path = paste0('Figure_1C_',a,'.pdf')
+p = ggplot()+
+    geom_point(data=dat[dat$group=='noSig',],aes(x=L2FC,y=logP),shape = 16, size = 0.4,color='grey') +
+	geom_point(data=dat[dat$group=='Sig',],aes(x=L2FC,y=logP),shape = 16, size = 0.4,color='#ea9085') +
+	scale_y_continuous(limits = c(0, 10),breaks = seq(0, 10, by = 2))+
+    geom_hline(yintercept = -log(max(dmin$Pvalue),10),linetype='dashed', col = 'darkred',linewidth=0.2)+
+    theme_bw()+
+    theme(
+    axis.title = element_text(size = 7),  
+    axis.text = element_text(size = 5),   
+    plot.title = element_text(size = 7, hjust = 0.5),  
+    legend.title = element_text(size = 7),  
+    legend.text = element_text(size = 5),    
+	panel.grid.major = element_line(linewidth = 0.2),  
+    panel.grid.minor = element_line(linewidth = 0.2),   
+	panel.border = element_rect(linewidth = 0.5)
+	axis.ticks = element_line(linewidth = 0.5),  
+    axis.ticks.length = unit(0.06, "cm")  
+  )+
+    xlab(paste0("MPRA activity in ",a)) +  
+    ylab(expression(-log[10]("P value")))
+ggsave(path,p,,width = 2,height=2)
+}
+
+# ========================================== Figure 1D
+
+# 读取数据
+GES_MPRA=fread('./SkewAnnolysis_TROVariant.GES.csv')
+MKN_MPRA=fread('./SkewAnnolysis_TROVariant.MKN.csv')
+GES_MPRA=as.data.frame(GES_MPRA)
+MKN_MPRA=as.data.frame(MKN_MPRA)
+GES_MPRA$G_GRO=ifelse(GES_MPRA$FDR<0.01,'Y','N')
+MKN_MPRA$M_GRO=ifelse(MKN_MPRA$FDR<0.01,'Y','N')
+
+# 差异检验
+result <- wilcox.test(abs(GES_MPRA[GES_MPRA$FDR<0.01,'log2FoldChange']),abs(GES_MPRA[GES_MPRA$FDR>=0.01,'log2FoldChange']))
+p_value <- result$p.value
+formatted_1 <- format(p_value, scientific = TRUE,digits = 3)
+result <- wilcox.test(abs(MKN_MPRA[MKN_MPRA$FDR<0.01,'log2FoldChange']),abs(MKN_MPRA[MKN_MPRA$FDR>=0.01,'log2FoldChange']))
+p_value <- result$p.value
+formatted_2 <- format(p_value, scientific = TRUE,digits = 3)
+
+# 画图
+p1 <- ggplot(GES_MPRA, aes(x = G_GRO, y = abs(log2FoldChange), fill = G_GRO)) +
+  geom_violin(scale = 'width',color = "black",alpha = 0.5,linewidth=0.2) +  
+  geom_boxplot(width = 0.4, color = "black",outlier.shape = NA, outlier.size = 0.2,linewidth=0.2) + 
+  theme_bw() + 
+  labs(x = "", y = "Allelic effect FC") +
+  ylim(0, 3) + 
+  theme(
+    axis.title = element_text(size = 7), 
+    axis.text = element_text(size = 5), 
+    plot.title = element_text(size = 7, hjust = 0.5),  
+    legend.title = element_text(size = 7), 
+    legend.text = element_text(size = 5),   
+	legend.position = "top",	
+	panel.grid.major = element_line(linewidth = 0.2), 
+    panel.grid.minor = element_line(linewidth = 0.2),   
+	panel.border = element_rect(linewidth = 0.5),
+	axis.ticks = element_line(linewidth = 0.5), 
+    axis.ticks.length = unit(0.06, "cm")  
+  )+
+  geom_text(x = 1, y = 2.5, label = paste("P = ", formatted_1),
+            color = "black", size = 1.5, hjust = 0) +
+  scale_fill_manual(values = c("Y" = "#ea9085", "N" = "#eaeaea"))  
+
+p2 <- ggplot(MKN_MPRA, aes(x = M_GRO, y = abs(log2FoldChange), fill = M_GRO)) +
+  geom_violin(scale = 'width',color = "black",alpha = 0.5,linewidth=0.2) + 
+  geom_boxplot(width = 0.4, color = "black", outlier.shape = NA, outlier.size = 0.2,linewidth=0.2) +  
+  theme_bw() + 
+  labs(x = "", y = "Allelic effect FC") +
+  ylim(0, 3) +  
+  theme(
+    axis.title = element_text(size = 7),  
+    axis.text = element_text(size = 5),  
+    plot.title = element_text(size = 7, hjust = 0.5),  
+    legend.title = element_text(size = 7),  
+    legend.text = element_text(size = 5), 
+    legend.position = "top",	
+	panel.grid.major = element_line(linewidth = 0.2),  
+    panel.grid.minor = element_line(linewidth = 0.2),  
+	panel.border = element_rect(linewidth = 0.5),
+	axis.ticks = element_line(linewidth = 0.5),  
+    axis.ticks.length = unit(0.06, "cm")  
+  )+
+  geom_text(aes(x = 1, y = 2.5, label = paste("P = ", formatted_2)),
+            color = "black", size = 1.5, hjust = 0) +
+  scale_fill_manual(values = c("Y" = "#769fcd", "N" = "grey")) 
+
+# 保存
+library(gridExtra)
+path <- "./Figure_1D.pdf"
+p <- grid.arrange(p1, p2, ncol = 2)
+ggsave(filename = path, plot = p, width = 3, height = 3, dpi = 300)
+
+# ========================================== Figure 1E
+
+# 读取文件
+GES_final=fread('./Skew_GES')
+MKN_final=fread('./Skew_MKN')
+GES_final$ID=ifelse(GES_final$L2FC>0,paste0(GES_final$rsid,':',GES_final$ALT,'>',GES_final$REF),
+									 paste0(GES_final$rsid,':',GES_final$REF,'>',GES_final$ALT))
+MKN_final$ID=ifelse(MKN_final$L2FC>0,paste0(MKN_final$rsid,':',MKN_final$ALT,'>',MKN_final$REF),
+									 paste0(MKN_final$rsid,':',MKN_final$REF,'>',MKN_final$ALT))
+
+dat1=GES_final
+for (i in 1:nrow(dat1)) {
+    if(dat1$FDR[i] <= 0.01)
+    dat1$group[i] = 'Sig'
+    if(dat1$FDR[i] > 0.01)
+    dat1$group[i] = 'noSig'
+}
+dmin = dat1[which(dat1$group == 'Sig'),]
+dat1$logP = -log(dat1$Pvalue,10)
+dat1$group = factor(dat1$group, levels = c("Sig","noSig"))
+dx1 = dat1[abs(dat1$L2FC)>1 & dat1$group=='Sig',]
+
+dat2=MKN_final
+for (i in 1:nrow(dat2)) {
+    if(dat2$FDR[i] <= 0.01)
+    dat2$group[i] = 'Sig'
+    if(dat2$FDR[i] > 0.01)
+    dat2$group[i] = 'noSig'
+}
+dmin = dat2[which(dat2$group == 'Sig'),]
+dat2$logP = -log(dat2$Pvalue,10)
+dat2$group = factor(dat2$group, levels = c("Sig","noSig"))
+dx2 = dat2[abs(dat2$L2FC)>1 & dat2$group=='Sig',]
+
+dat = merge(dat1,dat2,by = 'rsid')
+dat$group=ifelse(dat$group.x=='Sig'&dat$group.y=='Sig','Sig','noSig')
+dx = merge(dx1,dx2,by = 'rsid')
+dx$group=ifelse(dx$FDR.x<0.01 & dx$FDR.x<0.01,'Sig','noSig')
+
+p = ggplot() + #交集颜色：###bb2253,不显著：####f7e9e3
+    geom_point(data = dat[dat$group == 'noSig',], aes(x = L2FC.x, y = L2FC.y), col = '#bdc3c7', shape = 16, size = 0.4) +
+    geom_point(data = dat[dat$group == 'Sig',], aes(x = L2FC.x, y = L2FC.y), col = "#bb2253", shape = 16, size = 0.4) +
+    geom_hline(yintercept = 0, linetype = 2, col = 'black') +
+    geom_vline(xintercept = 0, linetype = 2, col = 'black') +
+    theme(legend.position = 'none') +
+    labs(x = "MPRA activity in GES-1", y = "MPRA activity in MKN-1")+
+	theme_bw()+
+    theme(
+    axis.title = element_text(size = 7),  
+    axis.text = element_text(size = 5),   
+    plot.title = element_text(size = 7, hjust = 0.5),  
+    legend.title = element_text(size = 7),  
+    legend.text = element_text(size = 5),   
+	panel.grid.major = element_line(linewidth = 0.2), 
+    panel.grid.minor = element_line(linewidth = 0.2),  
+	panel.border = element_rect(linewidth = 0.5), 
+	axis.ticks = element_line(linewidth = 0.5), 
+    axis.ticks.length = unit(0.06, "cm") 
+  )
+ggsave('./Figure_1E.pdf',p,width = 2, height = 2)
+
+correlation_sig <- cor(dat[dat$group == 'Sig', 'L2FC.x'], 
+                        dat[dat$group == 'Sig', 'L2FC.y'], 
+                        method = "pearson") #### 相关系数
+
+correlation_nosig <- cor(dat[dat$group == 'noSig', 'L2FC.x'], 
+                        dat[dat$group == 'noSig', 'L2FC.y'], 
+                        method = "pearson") #### 相关系数
+
+# ========================================== Figure 1G
+
+# 读取文件
+GES_MPRA=fread('./SkewAnnolysis_TROVariant.GES.csv')
+MKN_MPRA=fread('./SkewAnnolysis_TROVariant.MKN.csv')
+GES_MPRA=as.data.frame(GES_MPRA)
+MKN_MPRA=as.data.frame(MKN_MPRA)
+GES_MPRA$G_GRO=ifelse(GES_MPRA$FDR<0.01,'Y','N')
+MKN_MPRA$M_GRO=ifelse(MKN_MPRA$FDR<0.01,'Y','N')
+
+gwas=fread('./GWAS_meta')
+gwas=gwas[,c('RSID','P-value','Effect')]
+
+GWAS_MPRA_filtered_GES=merge(GES_MPRA,gwas,by.x='SNP',by.y='RSID',all.x=TRUE)
+GWAS_MPRA_filtered_MKN=merge(MKN_MPRA,gwas,by.x='SNP',by.y='RSID',all.x=TRUE)
+
+library(ggpubr)
+p1 <- ggplot(GWAS_MPRA_filtered_GES, aes(x = G_GRO, y = -log(`P-value`, 10), fill = G_GRO)) +
+  geom_violin(scale = 'width', color = "black", alpha = 0.5, linewidth = 0.2) +
+  geom_boxplot(width = 0.4, color = "black", outlier.shape = NA, outlier.size = 0.2, linewidth = 0.2) +
+  coord_cartesian(ylim = c(3, 20)) +
+  scale_y_continuous(limits = c(3, 20),breaks = seq(4, 20, by = 4)) + 
+  #scale_y_continuous(breaks = seq(4, 20, by = 4)) +  
+  theme_bw() +
+  labs(x = "", y = "-log10(GWAS P value)") +
+  theme(
+    axis.title = element_text(size = 7),
+    axis.text = element_text(size = 5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "top",
+    panel.grid.major = element_line(linewidth = 0.2),
+    panel.grid.minor = element_line(linewidth = 0.2),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  ) +
+stat_compare_means(
+  method = "wilcox.test",
+  aes(label = sprintf("p = %.3f", ..p..)),  # 手动格式化
+  size = 2,
+  label.x = 1.5,
+  label.y = 19
+)+
+  scale_fill_manual(values = c("Y" = "#ea9085", "N" = "grey"))
+
+p2 <- ggplot(GWAS_MPRA_filtered_MKN, aes(x = M_GRO, y = -log(`P-value`, 10), fill = M_GRO)) +
+  geom_violin(scale = 'width', color = "black", alpha = 0.5, linewidth = 0.2) +
+  geom_boxplot(width = 0.4, color = "black", outlier.shape = NA, outlier.size = 0.2, linewidth = 0.2) +
+  coord_cartesian(ylim = c(3, 20)) +
+  scale_y_continuous(limits = c(3, 20),breaks = seq(4, 20, by = 4)) + 
+  #scale_y_continuous(breaks = seq(4, 20, by = 4)) + 
+  theme_bw() +
+  labs(x = "", y = "-log10(GWAS P value)") +
+  theme(
+    axis.title = element_text(size = 7),
+    axis.text = element_text(size = 5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "top",
+    panel.grid.major = element_line(linewidth = 0.2),
+    panel.grid.minor = element_line(linewidth = 0.2),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  ) +
+stat_compare_means(
+  method = "wilcox.test",
+  aes(label = sprintf("p = %.3f", ..p..)),  # 手动格式化
+  size = 2,
+  label.x = 1.5,
+  label.y = 19
+)+
+  scale_fill_manual(values = c("Y" = "#769fcd", "N" = "grey"))
+
+# 保存
+library(gridExtra)
+path <- "./Figure_1G.pdf"
+p <- grid.arrange(p1, p2, ncol = 2)
+ggsave(filename = path, plot = p, width = 2, height = 2, dpi = 300)
+
+# ========================================== Figure 1H
+
+p1 <- ggplot(GWAS_MPRA_filtered_GES, aes(x = G_GRO, y = abs(Effect), fill = G_GRO)) +
+  geom_violin(scale = 'width', color = "black", alpha = 0.5, linewidth = 0.2) +
+  geom_boxplot(width = 0.4, color = "black", outlier.shape = NA, outlier.size = 0.2, linewidth = 0.2) +
+  scale_y_continuous(limits = c(0, 0.8),breaks = seq(0, 0.8, by = 0.2)) +  
+  scale_y_continuous(breaks = seq(0, 0.8, by = 0.2)) + 
+  theme_bw() +
+  labs(x = "", y = "-log10(GWAS P value)") +
+  theme(
+    axis.title = element_text(size = 7),
+    axis.text = element_text(size = 5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "top",
+    panel.grid.major = element_line(linewidth = 0.2),
+    panel.grid.minor = element_line(linewidth = 0.2),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  ) +
+stat_compare_means(
+  method = "wilcox.test",
+  aes(label = sprintf("p = %.3f", ..p..)),  # 手动格式化
+  size = 2,
+  label.x = 1.5,
+  label.y = 0.6
+)+
+  scale_fill_manual(values = c("Y" = "#ea9085", "N" = "grey"))
+
+p2 <- ggplot(GWAS_MPRA_filtered_MKN, aes(x = M_GRO, y = abs(Effect), fill = M_GRO)) +
+  geom_violin(scale = 'width', color = "black", alpha = 0.5, linewidth = 0.2) +
+  geom_boxplot(width = 0.4, color = "black", outlier.shape = NA, outlier.size = 0.2, linewidth = 0.2) +
+  scale_y_continuous(limits = c(0, 0.8),breaks = seq(0, 0.8, by = 0.2)) +  
+  scale_y_continuous(breaks = seq(0, 0.8, by = 0.2)) +  
+  theme_bw() +
+  labs(x = "", y = "-log10(GWAS P value)") +
+  theme(
+    axis.title = element_text(size = 7),
+    axis.text = element_text(size = 5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "top",
+    panel.grid.major = element_line(linewidth = 0.2),
+    panel.grid.minor = element_line(linewidth = 0.2),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  ) +
+stat_compare_means(
+  method = "wilcox.test",
+  aes(label = sprintf("p = %.3f", ..p..)),  # 手动格式化
+  size = 2,
+  label.x = 1.5,
+  label.y = 0.6
+)+
+  scale_fill_manual(values = c("Y" = "#769fcd", "N" = "grey"))
+
+# 保存
+library(gridExtra)
+path <- "./Figure_1H.pdf"
+p <- grid.arrange(p1, p2, ncol = 2)
+ggsave(filename = path, plot = p, width = 2, height = 2, dpi = 300)
+
+# ========================================== Figure 1I
+
+# 读取数据
+MPRA_ges=fread('./SkewAnnolysis_TROVariant.GES.csv')
+MPRA_mkn=fread('./SkewAnnolysis_TROVariant.MKN.csv')
+GWAS=fread('./GWAS_meta')
+GWAS=GWAS[,c('chr','bp','RSID')]
+
+# 转换成数值
+for(a in c('MPRA_ges','MPRA_mkn')){
+data=get(a)
+df <- merge(data,GWAS,by.x='SNP',by.y='RSID')
+df=as.data.frame(df)
+df$chr = as.numeric(df$chr)
+df$bp = as.numeric(df$bp)
+df = arrange(df,chr,bp)
+
+chr_len <- df %>% 
+  group_by(chr) %>% 
+  summarise(chr_len=max(bp))
+chr_len$chr = as.numeric(chr_len$chr)
+chr_len$chr_len = as.numeric(chr_len$chr_len)
+
+chr_pos <- chr_len  %>% 
+  mutate(total = cumsum(chr_len) - chr_len) %>%
+  select(-chr_len)
+chr_pos$total = as.numeric(chr_pos$total)
+chr_pos$chr = as.numeric(chr_pos$chr)
+
+Snp_pos <- chr_pos %>%
+  left_join(df, ., by="chr") %>%
+  arrange(chr, bp) %>%
+  mutate(BPcum = bp + total)
+  
+X_axis <- Snp_pos %>%
+  group_by(chr) %>%
+  dplyr::summarize(center = (max(BPcum) + min(BPcum)) / 2)
+  
+Snp_pos <- Snp_pos %>%
+  mutate(color = ifelse(SNP %in% c('rs10000700', 'rs1971184', 'rs17611446', 'rs12448875', 'rs7451008'),
+                        "#3f72af", "#dbe2ef"))
+
+# 画图
+p = ggplot(Snp_pos, aes(x = BPcum, y = abs(log2FoldChange))) +
+  geom_point(
+    aes(size = -log10(FDR),color = color),  # 根据color列设置颜色
+    alpha = 0.8) +  
+  scale_size_continuous(range = c(0.001, 1.8)) +
+  scale_color_identity() + 
+  #scale_size_continuous(range = c(0.1, 6))+
+  geom_text(aes(label = ifelse(abs(log2FoldChange) > 1, as.character(SNP), "")),
+            vjust = -1, hjust = -0.2, size = 1.5, color = "black") +
+  xlab(a) +
+  ylab("Allelic activity log2FC") +
+  scale_x_continuous(labels = X_axis$chr, breaks = X_axis$center, expand = c(0.01, 0.01)) +
+  geom_hline(yintercept = 1, color = 'red', linetype = "dashed", linewidth = 0.2) + 
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 7), 
+    axis.text = element_text(size = 5),  
+    plot.title = element_text(size = 7, hjust = 0.5),  
+    legend.title = element_text(size = 7),  
+    legend.text = element_text(size = 5),  
+	panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+	legend.position = "none", 
+	panel.border = element_rect(linewidth = 0.5), 
+	axis.ticks = element_line(linewidth = 0.5), 
+    axis.ticks.length = unit(0.06, "cm") 
+  )
+ggsave(paste0('./Figure_1I_',a,'.pdf'),p,width = 2.8, height = 1.6)
+}
+
+# ========================================== Figure 1J
+
+GES=fread('./ActivateOligo_GES.csv')
+MKN=fread('./ActivateOligo_MKN.csv')
+GES$ID=GES$V1
+GES=separate(GES,'V1',into=c('rsid','allele'),sep='_')
+MKN$ID=MKN$V1
+MKN=separate(MKN,'V1',into=c('rsid','allele'),sep='_')
+
+for(a in c('GES','MKN')){
+data=get(a)
+data=subset(data,rsid %in% c('rs10000700','rs12448875','rs17611446','rs1971184','rs7451008'))
+data$low=data$log2FoldChange-1.96*data$lfcSE
+data$up=data$log2FoldChange+1.96*data$lfcSE
+data$group=rep(c('A','B'),5)
+
+path=paste0('./Figure_1J_',a,'.pdf')
+p = ggplot(data, aes(x = log2FoldChange, 
+	y = factor(rsid,level= c('rs10000700','rs12448875','rs17611446','rs1971184','rs7451008')),color = group)) +  
+  geom_errorbarh(aes(xmin = low, xmax = up), height = 0.0,position = position_dodge(width = 0.8),linewidth = 0.8) +
+  geom_point(size = 1, position = position_dodge(width = 0.8)) +
+  scale_color_manual(values = c("A" = "#b94e8a", "B" = "#f9bf8f")) +
+  theme_minimal() +
+  theme(
+    axis.line = element_line(linewidth = 0.3, color = "black"), 
+    axis.title = element_text(size = 7),
+    axis.text = element_text(size = 5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  ) 
+ggsave(path,p,width=1.5,height=2)
+}

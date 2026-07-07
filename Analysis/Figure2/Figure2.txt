@@ -1,0 +1,750 @@
+conda activate Map
+cd /data1/gaoqian/Submission/MPRA_PRS/Figure2
+
+R
+library(data.table)
+library(ggplot2)
+library(reshape2)
+library(scales)
+library(ggrepel)
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+# ========================================== Figure 2A
+
+results=fread('./element_enrichment.csv')
+results2 <- results %>%
+  mutate(
+    Feature = factor(Feature,
+                     levels = c('TFBS','atac','h3k4me3','dhs','h3k27ac','h3k4me1',
+                                'h3k36me3','hic.loop','hic.tad','laminB1lads','h3k9me3','h3k27me3')),
+    group = factor(group, levels = c('nonActive', 'nonfrVar', 'frVar')),
+    # 显著性星号
+    sig = case_when(
+      p_value < 0.001 ~ '***',
+      p_value < 0.01  ~ '**',
+      p_value < 0.05  ~ '*',
+      TRUE            ~ ''
+    ),
+    y_lab = or * 1.01  # 星标显示在条形上方
+  )
+
+pos <- position_dodge(width = 0.8)
+
+# 绘图
+p_bar <- ggplot(results2, aes(x = Feature, y = or, fill = group)) +
+  geom_col(position = pos, width = 0.7, alpha = 0.9) +  
+  geom_text(aes(y = y_lab, label = sig, group = group),
+            position = pos, vjust = 0, size = 2) +
+  geom_hline(yintercept = 1, color = "#8B0000", linetype = "dashed", linewidth = 0.2) +
+  scale_fill_manual(values = c(
+    'nonActive' = 'grey70',
+    'nonfrVar'  = '#00ACB5',
+    'frVar'     = '#FF5621'
+  )) +
+  coord_cartesian(ylim = c(0, max(results2$y_lab, na.rm = TRUE) * 1.15)) +
+  labs(y = "OR", x = NULL) +
+  theme_minimal() +
+  theme(
+    axis.line        = element_line(linewidth = 0.3, color = "black"),
+    axis.title       = element_text(size = 7),
+    axis.text.x      = element_text(angle = 90, hjust = 1, size = 5),
+    axis.text.y      = element_text(size = 5),
+    plot.title       = element_text(size = 7, hjust = 0.5),
+    legend.title     = element_text(size = 7),
+    legend.text      = element_text(size = 5),
+    legend.position  = "top",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks       = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  )
+ggsave('./Figure_2A.pdf',p_bar,,width=4,height=4)
+
+# 组间比较
+alldata=fread('element_enrichment_compare.csv')
+results_frVar_nofrVar <- alldata %>%
+  rowwise() %>%
+  mutate(
+    test_results = list(fisher_test_full(frVar_snp_n, nonfrVar_snp_n, frVar_snp_all, nonfrVar_snp_all))
+  ) %>%
+  unnest_wider(test_results)
+results_frVar_nofrVar=as.data.frame(results_frVar_nofrVar)
+
+results_frVar_nonActive <- alldata %>%
+  rowwise() %>%
+  mutate(
+    test_results = list(fisher_test_full(frVar_snp_n, nonActive_snp_n, frVar_snp_all, nonActive_snp_all))
+  ) %>%
+  unnest_wider(test_results)
+results_frVar_nonActive=as.data.frame(results_frVar_nonActive)
+
+results_frVar_nofrVar[,c('frVar_Feature','p_value')]
+results_frVar_nonActive[,c('frVar_Feature','p_value')]
+
+# ========================================== Figure 2B
+
+# 读取两组数据库结果
+merged_ENCODE=fread('ENCODE_chromHMM.csv')
+merged_1443364N=fread('NJMU_chromHMM.csv')
+
+plots <- list()
+for (data_name in c('merged_ENCODE', 'merged_1443364N')) {
+  data <- get(data_name)
+  
+  data <- data %>%
+  mutate(
+    log2_or = log2(or),
+    sig = case_when(
+      p_value < 0.001 ~ "***",
+      p_value < 0.01 ~ "**",
+      p_value < 0.05 ~ "*",
+      TRUE ~ ""
+    )
+  )
+ #两组分别画图
+  p <- ggplot(data, aes(x = factor(Feature,level=c('TSS','Enhancer','Repressed','Heterochromatin','Quiescent')), 
+                        y = factor(group,level=c('frVars','nonfrVars','non_active_variants')), fill = log2_or)) +
+    geom_tile() +
+    geom_text(aes(label = sig), color = "white", size = 6) +  # 显示显著性符号
+	scale_fill_gradient2(
+	  low = "#69B5BB", high = "#EA3F50",
+	  mid = "white", midpoint = 0,
+	  name = "log2(OR)",
+	  limits = c(-1.5, 2.5),
+	  breaks = c(-1, 0, 1, 2),
+	  na.value = "grey80"
+	)+
+    labs(x = "chromMM", y = "", title = paste("Enrichment of Differentially Active SNVs", data_name)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 0, hjust = 0.5), 
+          text = element_text(size = 12))  
+  plots[[data_name]] <- p
+}
+library(gridExtra)
+plot_path='Figure_2B.pdf'
+pdf(plot_path,width=8,height=4)
+grid.arrange(plots[['merged_ENCODE']], plots[['merged_1443364N']], ncol = 1)
+dev.off()
+
+# ========================================== Figure 2C
+
+# 读取数据，统一因子水平
+df=fread('./celltype_percentage.csv')
+
+feat_lv  <- c('Epithelium','Bcell','Tcell','Fibroblasts','ECs','Myelocyte','Mast')
+group_lv <- c('non_active_variants','nonfrVars','frVars')
+
+df2 <- df %>%
+  mutate(
+    Feature = factor(Feature, levels = feat_lv),
+    group   = factor(group,   levels = group_lv)
+  )
+
+# 添加显著标记 
+label_df <- df2 %>%
+  filter(group != "frVars") %>%                 
+  mutate(
+    p_label = case_when(
+      is.na(p_value)           ~ "",
+      p_value < 0.001          ~ "***",
+      p_value < 0.01           ~ "**",
+      p_value < 0.05           ~ "*",
+      TRUE                     ~ ""
+    ),
+    y_lab = ratio + 4
+  ) %>%
+  filter(p_label != "") # 只保留需要绘制的星号
+
+pd <- position_dodge(width = 0.8) # 条与星号对齐
+
+# 画图
+p <- ggplot(df2, aes(
+  x = Feature,
+  y = ratio,
+  fill = group
+)) +
+  geom_bar(stat = "identity", position = pd, width = 0.6) +
+  scale_fill_manual(values = c(
+    'frVars'             = '#FF5621',
+    'nonfrVars'          = '#00ACB5',
+    'non_active_variants'= 'grey'
+  )) +
+  geom_text(
+    data = label_df,
+    aes(x = Feature, y = y_lab, label = p_label, group = group),
+    position = pd, vjust = 0, size = 4
+  ) +
+  # 给顶部留白
+  coord_cartesian(ylim = c(0, max(df2$ratio, na.rm = TRUE) * 1.12)) +
+  theme_minimal() +
+  theme(
+    axis.line        = element_line(linewidth = 0.3, color = "black"),
+    axis.title       = element_text(size = 7),
+    axis.text.x      = element_text(angle = 90, hjust = 1, size = 5),
+    axis.text.y      = element_text(size = 5),
+    plot.title       = element_text(size = 7, hjust = 0.5),
+    legend.title     = element_text(size = 7),
+    legend.text      = element_text(size = 5),
+    legend.position  = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks       = element_line(linewidth = 0.5),
+    axis.ticks.length= unit(0.06, "cm")
+  ) +
+  labs(y = "Percentage (%)", x = NULL)
+ggsave('./Figure_2C.pdf',p,,width=3,height=2)
+
+# ========================================== Figure 2D
+
+conda activate Map
+cd /data1/gaoqian/Submission/MPRA_PRS/Figure2
+
+#胃组织ENCODE
+plotProfile -m ./Stomach_ENCODE.gz \
+  -out ./Figure_2D_left.pdf \
+  --dpi 600 --plotFileFormat pdf --plotHeight 8 --plotWidth 8
+  
+#胃组织NJMU
+plotProfile -m ./Stomach_NJMU.gz \
+  -out ./Figure_2D_middle.pdf \
+  --dpi 600 --plotFileFormat pdf --plotHeight 8 --plotWidth 8
+  
+#上皮细胞
+
+plotProfile -m ./Epithelium.gz \
+  -out ./Figure_2D_right.pdf \
+  --dpi 600 --plotFileFormat pdf --plotHeight 8 --plotWidth 8
+  
+# ========================================== Figure 2E
+
+final_results=fread('./HOMOR_score.csv')
+final_results=subset(final_results,Group %in% c('frVars','nonfrVars','non_active_variants'))
+final_results$Group <- factor(final_results$Group, levels = c("non_active_variants", "nonfrVars", "frVars"))					  
+
+# 画图
+path='./Figure_2E.pdf'
+p = ggplot(final_results, aes(x = Group, y = Adjusted_Value)) +
+  geom_bar(stat = "identity", fill = "#69b3a2",width = 0.6) +
+  labs(title = "Adjusted Values by Group",
+       x = "",
+       y = "log2(Motif contents)") +
+  scale_y_continuous(breaks = c(0, 2, 4, 6, 8, 10)) +
+  theme_minimal() +
+  theme(
+    axis.line = element_line(linewidth = 0.3, color = "black"),    
+    axis.title = element_text(size = 7),
+	axis.text.x = element_text(angle = 90, hjust = 1,size=5),
+	axis.text.y = element_text(size=5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  )
+ggsave(path,p,,height=2,width=2)
+
+# 两两差异检验
+fisher_test_full <- function(snp_n, cal_n, snp_all, cal_all) {
+  contingency_table <- matrix(c(snp_n, snp_all - snp_n, cal_n, cal_all - cal_n), nrow = 2, byrow = TRUE)
+  fisher_result <- fisher.test(contingency_table)
+  p_value <- fisher_result$p.value
+  or <- fisher_result$estimate
+  low = fisher_result$conf.int[1]
+  up = fisher_result$conf.int[2]
+  result <- data.frame(p_value = p_value, or = or, lower_ci = low, upper_ci = up)
+  return(result)
+} # 卡方检验函数
+
+fisher_data=fread('/data1/gaoqian/Submission/MPRA_PRS/Figure2/HOMOR_score_compare.csv')
+results <- fisher_data %>%
+  rowwise() %>%
+  mutate(
+    test_results = list(fisher_test_full(snp_n, cal_n, snp_all, cal_all))
+  ) %>%
+  unnest_wider(test_results) 
+results=as.data.frame(results) # 添加到图中
+
+# ========================================== Figure 2F
+
+# 读取三个数据库结果
+mpra=fread('Average_MPRA_allelic.csv')
+motifB=fread('jaspar_allelic.csv')
+selex=fread('snpselex_allelic.csv')
+
+# left
+mpra_motifB = merge(mpra,motifB,by.x='rsid',by.y='V4')
+mpra_motifB$Diff_score=scale(mpra_motifB$Diff_score, center = TRUE, scale = T)
+cor_result <- cor.test(mpra_motifB$L2FC, mpra_motifB$Diff_score)
+correlation <- cor_result$estimate
+p_value <- cor_result$p.value# 相关性
+
+plot1 <- ggplot(mpra_motifB, aes(x = L2FC, y = Diff_score)) +
+  geom_point(color = "#07689f", size = 1) + 
+  geom_smooth(method = "lm", se = T, color = "red", linewidth = 0.5) +  
+  ggtitle(paste0("Pearson r = ", round(correlation, 3),
+                 ", p = ", format.pval(p_value, digits = 3, scientific=T))) +
+  geom_hline(yintercept = 0, color = 'black', linetype = "dashed", linewidth = 0.2) + 
+  geom_vline(xintercept = 0, color = 'black', linetype = "dashed", linewidth = 0.2) + 
+  xlab('MPRA Allelic activity') +
+  ylab('Normalized JASPAR disruption score') +
+  theme_minimal() +
+  theme(
+    axis.line = element_line(linewidth = 0.3, color = "black"),    
+    axis.title = element_text(size = 7),
+	axis.text.x = element_text(hjust = 1,size=5),
+	axis.text.y = element_text(size=5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  )
+  
+file_name <- './Figure_2F_left.pdf'
+ggsave(file_name, plot = plot1, width = 3, height = 3) 
+
+# right
+mpra$ID=paste0(mpra$chr,':',mpra$bp)
+mpra_selex = merge(mpra,selex,by='ID')
+mpra_selex$Diff_score=scale(mpra_selex$Diff_score, center = TRUE, scale = T)
+cor_result <- cor.test(mpra_selex$L2FC, mpra_selex$Diff_score)
+correlation <- cor_result$estimate
+p_value <- cor_result$p.value # 相关性
+
+plot2 <- ggplot(mpra_selex, aes(x = L2FC, y = Diff_score)) +
+  geom_point(color = "#07689f", size = 1) + 
+  geom_smooth(method = "lm", se = T, color = "red", linewidth = 0.5) +  
+  ggtitle(paste0("Pearson r = ", round(correlation, 3),
+                 ", p = ", format.pval(p_value, digits = 3,  scientific=T))) +
+  geom_hline(yintercept = 0, color = 'black', linetype = "dashed", linewidth = 0.2) + 
+  geom_vline(xintercept = 0, color = 'black', linetype = "dashed", linewidth = 0.2) + 
+  xlab('MPRA Allelic activity') +
+  ylab('Normalized SNP-SELEX disruption score') +
+  theme_minimal() +
+  theme(
+    axis.line = element_line(linewidth = 0.3, color = "black"),   
+    axis.title = element_text(size = 7),
+	axis.text.x = element_text(hjust = 1,size=5),
+	axis.text.y = element_text(size=5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  )
+  
+file_name <- "./Figure_2F_right.pdf"
+ggsave(file_name, plot = plot2, width = 3, height = 3)  
+
+# ========================================== Figure 2G
+
+# 载入数据 
+plotdata=fread('TFs_enrichment.csv')
+tcga_gene=fread('TFs_TCGA.csv')
+NMU_gene=fread('TFs_NJMU.csv')
+stemness_gene=fread('TFs_Stemness.csv')
+hallmaker_gene=fread('TFs_Hallmark.csv')
+
+plotdata$geneSymbol <- factor(plotdata$geneSymbol, 
+        levels = plotdata$geneSymbol[order(-plotdata$logP, decreasing = TRUE)])
+
+p1 = ggplot(plotdata, aes(x = geneSymbol, y = -logP)) +
+  geom_point(aes(size=or,color=snp_n)) +
+  scale_size_continuous(
+  name = "OR",
+  breaks = c(2, 4, 8, 16, 24),
+  range = c(2, 8),
+  limits = c(2, 24)  # 明确设置范围
+  )+
+  scale_color_gradient2(low = "#d6e4f0", mid='#1e56a0', high = "#163172",midpoint=8) + 
+  labs(x = "",
+       y = "-log10(P)",
+       fill = "# of sequences with motifs") +
+  theme_minimal() +
+  theme(
+    axis.line = element_line(linewidth = 0.3, color = "black"),    
+    axis.title = element_text(size = 7),
+	axis.text.x = element_text(angle = 90, hjust = 1,size=5),
+	axis.text.y = element_text(size=5),
+    plot.title = element_text(size = 7, hjust = 0.5),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5),
+    legend.position = "top",
+    #panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.ticks = element_line(linewidth = 0.5),
+    axis.ticks.length = unit(0.06, "cm")
+  )
+  
+p2 = ggplot(plotdata, aes(x = geneSymbol, y = 1, fill = log(exp+1,2))) +
+  geom_tile(color = "white",linewidth = 0.4,height = 1) +
+  scale_fill_gradient(low = "#F7F5E5", high = "#FF4741", name = "Expression") +
+  theme_minimal() +
+  labs(x = "log2 normalized expression", y = NULL) +
+theme(
+  axis.line = element_blank(),        
+  axis.text.x = element_blank(),       
+  axis.text.y = element_blank(),       
+  axis.ticks = element_blank(),      
+  axis.title.x = element_blank(),     
+  axis.title.y = element_blank(),     
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  plot.title = element_text(size = 7, hjust = 0.5),
+  legend.title = element_text(size = 7),
+  legend.text = element_text(size = 5),
+  legend.position = "right"
+)
+
+p3 <- ggplot(tcga_gene, aes(x = geneSymbol, y = 1, fill = sig)) +
+  geom_tile(color = "white",linewidth = 0.4,height = 1) +
+  scale_fill_manual(values = c(sig = "#ff793e", nosig = "#fffbf3"),name = "DEG")+
+  theme_minimal() +
+  labs(x = "log2 normalized expression", y = NULL) +
+theme(
+  axis.line = element_blank(),         
+  axis.text.x = element_blank(),       
+  axis.text.y = element_blank(),       
+  axis.ticks = element_blank(),        
+  axis.title.x = element_blank(),      
+  axis.title.y = element_blank(),      
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  plot.title = element_text(size = 7, hjust = 0.5),
+  legend.position = "none"   # ← 隐藏图例
+)
+  
+p3_1 <- ggplot(NMU_gene, aes(x = geneSymbol, y = 1, fill = sig)) +
+  geom_tile(color = "white",linewidth = 0.4,height = 1) +
+  scale_fill_manual(values = c(sig = "#ff793e", nosig = "#fffbf3"),name = "DEG")+
+  theme_minimal() +
+  labs(x = "log2 normalized expression", y = NULL) +
+theme(
+  axis.line = element_blank(),         
+  axis.text.x = element_blank(),       
+  axis.text.y = element_blank(),       
+  axis.ticks = element_blank(),        
+  axis.title.x = element_blank(),      
+  axis.title.y = element_blank(),      
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  plot.title = element_text(size = 7, hjust = 0.5),
+  legend.position = "none"   # ← 隐藏图例
+)
+
+plot_list = list()
+for(i in c('GSE27342','GSE29272','GSE54129','GSE184336')){
+  path = paste0(i, '_result.txt')
+  
+  geo = fread(path)
+  geo = subset(geo, ENSG %in% gene_id$V5)
+  geo$FDR = p.adjust(geo$p_value, method = 'fdr')
+  geo = subset(geo, FDR<0.05)
+  geo_gene = plotdata %>% 
+  mutate(sig=ifelse(geneSymbol %in% geo$ENSG,'sig','nosig'))
+  
+  p <- ggplot(geo_gene, aes(x = geneSymbol, y = 1, fill = sig)) +
+  geom_tile(color = "white",linewidth = 0.4,height = 1) +
+    scale_fill_manual(values = c("sig" = "#ff793e", "nosig" = "#fffbf3"), name = "DEG") +
+    theme_minimal() +
+    labs(x = "Gene", y = NULL) +
+theme(
+  axis.line = element_blank(),         
+  axis.text.x = element_blank(),       
+  axis.text.y = element_blank(),       
+  axis.ticks = element_blank(),        
+  axis.title.x = element_blank(),      
+  axis.title.y = element_blank(),      
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  plot.title = element_text(size = 7, hjust = 0.5),
+  legend.position = "none"   # ← 隐藏图例
+)
+  
+  plot_list[[i]] <- p
+}
+
+p4 <- ggplot(stemness_gene, aes(x = geneSymbol, y = 1, fill = sig)) +
+  geom_tile(color = "white",linewidth = 0.4,height = 1) +
+  scale_fill_manual(values = c(sig = "#02c39a", nosig = "#fffbf3"),name = "Stemness")+
+  theme_minimal() +
+  labs(x = "log2 normalized expression", y = NULL) +
+theme(
+  axis.line = element_blank(),         
+  axis.text.x = element_blank(),       
+  axis.text.y = element_blank(),       
+  axis.ticks = element_blank(),        
+  axis.title.x = element_blank(),      
+  axis.title.y = element_blank(),      
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  plot.title = element_text(size = 7, hjust = 0.5),
+  legend.position = "none"   # ← 隐藏图例
+)
+  
+p5 <- ggplot(hallmaker_gene, aes(x = geneSymbol, y = 1, fill = sig)) +
+  geom_tile(color = "white",linewidth = 0.4,height = 1) +
+  scale_fill_manual(values = c(sig = "#5893d4", nosig = "#fffbf3"),name = "Stemness")+
+  theme_minimal() +
+  labs(x = "log2 normalized expression", y = NULL) +
+theme(
+  axis.line = element_blank(),         
+  axis.text.x = element_blank(),       
+  axis.text.y = element_blank(),       
+  axis.ticks = element_blank(),        
+  axis.title.x = element_blank(),      
+  axis.title.y = element_blank(),      
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  plot.title = element_text(size = 7, hjust = 0.5),
+  legend.position = "none"   # ← 隐藏图例
+)
+
+# 组合导出
+library(patchwork)
+final_plot <- (
+  p1 /
+  (p2 / p3 / p3_1 /
+   plot_list[['GSE27342']] /
+   plot_list[['GSE29272']] /
+   plot_list[['GSE54129']] /
+   plot_list[['GSE184336']] /
+   p4 / p5))
+
+ggsave(
+  "Figure_2G.pdf",
+  final_plot,
+  width = 20,
+  height = 10
+)
+
+# ========================================== Figure 2H
+
+mat <- fread('./Grouped_TF.csv')
+mat <- as.data.frame(mat)
+rownames(mat) <- mat[, 1]
+mat <- mat[, -1]
+
+my_palette <- colorRampPalette(c('#f9f7f7',"#dbe2ef", '#3f72af', "#112d4e"))(30)
+p = pheatmap(mat,
+         scale = "none",
+		 cluster_rows = F, 
+         clustering_distance_rows = "correlation",   # 替换欧氏距离
+         clustering_method = "ward.D2",              # 层次聚类中更平衡的分支
+         border_color = "white",
+		 fontsize_row = 6,
+		 color = my_palette, 
+		 width = 6, height = 12,
+		 filename = "./Figure_2H.pdf"
+)
+
+# ========================================== Figure 2I, top
+
+SIGNIFICANCE_THRESHOLD <- 5e-4
+FDR_THRESHOLD <- 0.01
+
+# Define regions of interest 
+  chr_i <- 16
+  start_i <- 19300000
+  end_i <- 19900000
+
+# Load MPRA data
+ges=fread('Allelic_all_withFDR_GES')
+mkn=fread('Allelic_all_withFDR_MKN')
+
+# Load GWAS data
+  gwas <- fread('./GWAS_meta')
+  gwas_sub <- subset(gwas, chr == chr_i & bp > start_i & bp < end_i)
+
+  gwas_sub$logp <- -log10(gwas_sub$`P-value`)
+  gwas_sig <- gwas_sub[gwas_sub$logp > -log10(SIGNIFICANCE_THRESHOLD), ]
+  gwas_sig=subset(gwas_sig,RSID %in% ges$SNP)
+  gwas_sig=subset(gwas_sig,RSID %in% mkn$SNP)
+  gwas_nosig <- gwas_sub[gwas_sub$logp <= -log10(SIGNIFICANCE_THRESHOLD), ]
+  
+  x_start <- start_i / 1e6
+  x_end <- end_i / 1e6
+
+# Color scheme
+COLORS <- list(
+  gwas_sig = '#f08a5d',
+  gwas_nonsig = 'grey',
+  mpra_sig = '#b74242',
+  mpra_nonsig = 'grey'
+)
+  
+# GWAS plot
+  p_gwas <- ggplot() +
+    geom_point(data = gwas_nosig, aes(x = bp / 1e6, y = logp), size = 5, color = COLORS$gwas_nonsig) +
+    geom_point(data = gwas_sig, aes(x = bp / 1e6, y = logp), size = 5, color = COLORS$gwas_sig) +
+    scale_x_continuous(limits = c(x_start, x_end), labels = function(x) paste0(x, " Mb")) +
+    labs(x = paste0("chr", chr_i), y = "-log10(GWAS P)") +
+
+    theme_minimal() +
+    theme(
+      axis.line.y = element_line(linewidth = 0.5, color = "black"),
+      axis.line.x = element_blank(),
+      axis.title = element_text(size = 28),
+      axis.text.x = element_blank(),
+      axis.text.y = element_text(size = 20),
+      legend.title = element_text(size = 20),
+      legend.text = element_text(size = 16),
+      legend.position = "right",
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.ticks.y = element_line(linewidth = 1),
+      axis.ticks.x = element_blank(),
+      axis.ticks.length = unit(0.2, "cm")
+    )
+  
+# MPRA plot
+  bp_data <- gwas_sub[, c('bp', 'RSID')]
+  plot_list <- list()
+  
+  for (cell_type in c('ges', 'mkn')) {
+    data <- get(cell_type)
+    data <- merge(bp_data, data, by.x = 'RSID', by.y = 'SNP')
+    
+    data$logp <- -log10(data$Pvalue)
+    data_sig <- subset(data, FDR.y < FDR_THRESHOLD)
+    data_nosig <- subset(data, !(RSID %in% data_sig$RSID))
+    # 高亮点
+    highlight_snps_mpra <- data_sig
+    highlight_snps_mpra$label_y <- highlight_snps_mpra$logp + 0.2
+    highlight_snps_mpra$label_x <- highlight_snps_mpra$bp / 1e6 + 0.002
+    
+    p_mpra <- ggplot() +
+      geom_point(data = data_nosig, 
+                 aes(x = bp / 1e6, y = logp, size = abs(log2FoldChange)), 
+                 color = COLORS$mpra_nonsig) +
+      geom_point(data = data_sig, 
+                 aes(x = bp / 1e6, y = logp, size = abs(log2FoldChange)), 
+                 color = COLORS$mpra_sig) +
+      scale_x_continuous(limits = c(x_start, x_end), labels = function(x) paste0(x, " Mb")) +
+      labs(x = paste0("chr", chr_i), 
+           y = paste0("-log10(MPRA ", toupper(cell_type), " P)"),
+           size = "|log2FC|") +
+      geom_vline(data = highlight_snps_mpra, 
+                 aes(xintercept = bp / 1e6), 
+                 linetype = "dashed", color = "black", linewidth = 0.5) +
+      geom_segment(data = highlight_snps_mpra,
+                   aes(x = bp / 1e6, xend = label_x, y = logp, yend = label_y),
+                   color = "black", linewidth = 0.3) +
+      geom_text(data = highlight_snps_mpra,
+                aes(x = label_x, y = label_y, label = RSID),
+                size = 6, color = "black", hjust = 0) +
+      theme_minimal() +
+	  scale_size_continuous(
+	  limits = c(-0.01, 1.4),
+	  breaks = c(0.2, 0.6, 1.0,1.4),
+	  range = c(2, 8),
+	  name = 'MPRA Allelic activity' 
+	  ) +
+      theme(
+        axis.line.y = element_line(linewidth = 0.5, color = "black"),
+        axis.line.x = if (cell_type == 'mkn') element_line(linewidth = 0.5, color = "black") else element_blank(),
+        axis.title = element_text(size = 28),
+        axis.text.x = if (cell_type == 'mkn') element_text(size = 20) else element_blank(),
+        axis.text.y = element_text(size = 20),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 16),
+        legend.position = if (cell_type == 'mkn') "none" else "bottom",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.ticks.y = element_line(linewidth = 1),
+        axis.ticks.x = if (cell_type == 'mkn') element_line(linewidth = 1) else element_blank(),
+        axis.ticks.length = unit(0.2, "cm")
+      )
+    plot_list[[cell_type]] <- p_mpra
+  }
+  
+# Save combined plot
+  output_file <- paste0('./Figure_2I_top.pdf')
+  pdf(output_file, width = 20, height = 15)
+  grid.arrange(p_gwas, plot_list[['ges']], plot_list[['mkn']], 
+               ncol = 1,heights = c(1, 1, 1.2))  
+  dev.off()
+  
+# ========================================== Figure 2I, middle
+# WashU 在线画轨道图导出
+
+# ========================================== Figure 2I, bottom
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(patchwork)
+
+# 两个点的MPRA结果
+my_rsid=c('rs144922191','rs12448875')
+mpra=fread('oligo_res.csv')
+pattern <- paste(my_rsid, collapse = '|')
+example <- mpra[grepl(pattern, mpra$new_Oligo_ID), ]
+example=example[,c(2,5:13,16:22)]
+example=separate(example,'new_Oligo_ID',into=c('rsid','allele'))
+
+# 整理数据为长格式
+data_long <- example %>%
+  pivot_longer(
+    cols = c(starts_with("GES_ratio"), starts_with("MKN_ratio")),
+    names_to = "ratio_type",
+    values_to = "value"
+  ) %>%
+  mutate(group = ifelse(grepl("^GES", ratio_type), "GES", "MKN"))
+rsid_list <- unique(example$rsid)
+
+# 画图
+allele_colors <- c("#1f77b4","#d62728")
+for (r in rsid_list) {
+  data_r <- data_long %>% filter(rsid == r)
+
+  # 统一 y 轴范围
+  y_min <- min(data_r$value, na.rm = TRUE)
+  y_max <- max(data_r$value, na.rm = TRUE)
+
+  # 图1：GES
+  p1 <- ggplot(data_r %>% filter(group == "GES"), aes(x = allele, y = value, color = allele)) +
+    geom_boxplot(fill = NA, outlier.shape = NA) +
+    geom_jitter(width = 0.2, size = 1.5, alpha = 0.7) +
+    scale_color_manual(values = allele_colors) +
+    scale_y_continuous(limits = c(y_min, y_max)) +
+    labs(title = paste0("GES Ratios: ", r), y = "RNA/DNA", x = "Allele") +
+    theme_minimal() +
+    theme(legend.position = "none")
+
+  # 图2：MKN
+  p2 <- ggplot(data_r %>% filter(group == "MKN"), aes(x = allele, y = value, color = allele)) +
+    geom_boxplot(fill = NA, outlier.shape = NA) +
+    geom_jitter(width = 0.2, size = 1.5, alpha = 0.7) +
+    scale_color_manual(values = allele_colors) +
+    scale_y_continuous(limits = c(y_min, y_max)) +
+    labs(title = paste0("MKN Ratios: ", r), y = NULL, x = "Allele") +  # 不写 y 标签
+    theme_minimal() +
+    theme(
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      legend.text = element_text(size = 6),
+      legend.title = element_text(size = 7),
+      legend.key.size = unit(0.3, "cm")
+    )
+
+  # 合并图
+  combined_plot <- p1 + p2 + plot_layout(ncol = 2)
+
+  path = paste0("./Figure_2I_bottom_", r, ".pdf")
+  ggsave(path,combined_plot, width = 6, height = 3)
+}
+
+
